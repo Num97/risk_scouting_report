@@ -45,3 +45,13 @@ export interface IndicatorCrop {
 export interface IndicatorsResponse {
   [templateId: string]: IndicatorCrop
 }
+
+export interface IndicatorThreshold {
+  id?: number;
+  template_group_crop_group_measurement_id: number; // Новое обязательное поле
+  scout_report_template_id: number | null;
+  crop_id: number | null;
+  scout_report_measurement_type_id: number | null;
+  threshold_value: number | null;
+  indicator_zone: 'green' | 'orange' | 'red';
+}

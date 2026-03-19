@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react"
-import { getScoutReports, getIndicators, saveAllThresholds, getAllThresholds, type IndicatorThreshold, deleteTemplateThresholds, deleteCropThresholds } from "./api/scoutingReportApi"
+import { getScoutReports, getIndicators, getAllThresholds, type IndicatorThreshold, deleteTemplateThresholds, deleteCropThresholds } from "./api/scoutingReportApi"
 import { aggregateTemplates } from "./services/aggregateTemplates"
 
 import ScoutingTemplateTableNested from "./components/Table/ScoutingTemplateTableNested"
@@ -11,20 +11,61 @@ import { Header } from "./components/Header/Header";
 import { useSearchParams } from "react-router-dom";
 
 import { getHandbooks } from "./api/handbooksApi"
-import ThresholdsEditor from "./components/ThresholdsEditor/ThresholdsEditor"
-import type { IndicatorsData } from "./components/ThresholdsEditor/types"
+import GroupsThresholdsEditor from "./components/GroupsThresholdsEditor/GroupsThresholdsEditor"
+import type { GroupsIndicatorsData } from "./components/GroupsThresholdsEditor/types"
 import type { Crop, ScoutReportTemplate, ScoutReportMeasurementType } from "./types/handbooks"
+import GroupsManager from "./components/GroupsManager/GroupsManager";
+
+// Импортируем типы для групп
+import type { 
+  TemplateGroupName, 
+  TemplateGroup, 
+  CropGroupName, 
+  CropGroup,
+  TemplateGroupCropGroup,
+  TemplateGroupCropGroupMeasurement 
+} from "./types/groups";
+import {
+  getTemplateGroupNames,
+  getTemplateGroups,
+  getCropGroupNames,
+  getCropGroups,
+  getTemplateGroupCropGroups,
+  getTemplateGroupCropGroupMeasurements,
+  createTemplateGroupCropGroup,
+  deleteTemplateGroupCropGroup,
+  createTemplateGroupCropGroupMeasurement,
+  deleteTemplateGroupCropGroupMeasurement,
+} from "./api/scoutingReportApi";
+
+import { 
+  saveAllThresholds
+} from "./api/scoutingReportApi";
+import type { IndicatorsData } from "./components/ThresholdsEditor/types";
 
 function App() {
   const [templates, setTemplates] = useState<TemplateData[]>([])
   const [crops, setCrops] = useState<Crop[]>([])
   const [reportTemplates, setReportTemplates] = useState<ScoutReportTemplate[]>([])
   const [measurementTypes, setMeasurementTypes] = useState<ScoutReportMeasurementType[]>([])
-  const [thresholdsData, setThresholdsData] = useState<IndicatorsData>({})
+  
+  // Состояния для групп
+  const [templateGroupNames, setTemplateGroupNames] = useState<TemplateGroupName[]>([]);
+  const [templateGroups, setTemplateGroups] = useState<TemplateGroup[]>([]);
+  const [cropGroupNames, setCropGroupNames] = useState<CropGroupName[]>([]);
+  const [cropGroups, setCropGroups] = useState<CropGroup[]>([]);
+  
+  // Новые состояния для связей групп и измерений
+  const [templateGroupCropGroups, setTemplateGroupCropGroups] = useState<TemplateGroupCropGroup[]>([]);
+  const [templateGroupCropGroupMeasurements, setTemplateGroupCropGroupMeasurements] = useState<TemplateGroupCropGroupMeasurement[]>([]);
+  
+  // Данные для группового редактора
+  const [groupsThresholdsData, setGroupsThresholdsData] = useState<GroupsIndicatorsData>({});
   const [existingRules, setExistingRules] = useState<IndicatorThreshold[]>([])
+  
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [currentView, setCurrentView] = useState<'table' | 'zones'>('table') // Новое состояние
+  const [currentView, setCurrentView] = useState<'table' | 'zones' | 'groups'>('table');
   
   const reportsRef = useRef<ScoutReportItem[]>([])
 
@@ -39,102 +80,186 @@ function App() {
     setSearchParams({ ...Object.fromEntries(searchParams), season: String(newSeason) });
   };
 
-  const handleViewChange = (view: 'table' | 'zones') => {
+  const handleViewChange = (view: 'table' | 'zones' | 'groups') => {
     setCurrentView(view);
   };
 
-  const handleDeleteTemplate = async (templateId: number) => {
+  // Функция для загрузки всех данных групп
+  const loadGroupsData = async () => {
     try {
-      setIsSaving(true);
-      console.log(`🗑️ Deleting template ${templateId}...`);
-      
-      // Удаляем все правила шаблона
-      await deleteTemplateThresholds(templateId);
-      
-      // Обновляем данные
-      const [indicators, allRules] = await Promise.all([
-        getIndicators(),
-        getAllThresholds()
+      const [
+        tGroupNames, 
+        tGroups, 
+        cGroupNames, 
+        cGroups,
+        tgcgGroups,
+        tgcgMeasurements
+      ] = await Promise.all([
+        getTemplateGroupNames(),
+        getTemplateGroups(),
+        getCropGroupNames(),
+        getCropGroups(),
+        getTemplateGroupCropGroups(),
+        getTemplateGroupCropGroupMeasurements()
       ]);
-      
-      // Обновляем existingRules
-      setExistingRules(allRules);
-      
-      // Обновляем thresholdsData
-      const convertedData: IndicatorsData = {}
-      
-      if (indicators && Object.keys(indicators).length > 0) {
-        Object.entries(indicators).forEach(([tId, templateData]) => {
-          convertedData[tId] = {}
-          
-          Object.entries(templateData).forEach(([cId, cropData]) => {
-            convertedData[tId][cId] = {}
-            
-            Object.entries(cropData).forEach(([mId, zones]) => {
-              convertedData[tId][cId][mId] = zones.map(zone => ({
-                threshold_value: zone.threshold_value,
-                zone: zone.zone
-              }))
-            })
-          })
-        })
-      }
-      
-      setThresholdsData(convertedData);
-      
-      console.log(`✅ Template ${templateId} deleted successfully`);
-      
+
+      setTemplateGroupNames(tGroupNames);
+      setTemplateGroups(tGroups);
+      setCropGroupNames(cGroupNames);
+      setCropGroups(cGroups);
+      setTemplateGroupCropGroups(tgcgGroups);
+      setTemplateGroupCropGroupMeasurements(tgcgMeasurements);
     } catch (error) {
-      console.error(`❌ Failed to delete template ${templateId}:`, error);
-      throw error;
-    } finally {
-      setIsSaving(false);
+      console.error("Ошибка загрузки групп", error);
     }
   };
 
-  const handleDeleteCrop = async (templateId: number, cropId: number) => {
+  // Функции для управления связями групп
+  const handleAddTemplateGroupCropGroup = async (templateGroupId: number, cropGroupId: number) => {
+    try {
+      const newId = await createTemplateGroupCropGroup(templateGroupId, cropGroupId);
+      await loadGroupsData();
+      return newId;
+    } catch (error) {
+      console.error("Ошибка создания связи групп", error);
+      throw error;
+    }
+  };
+
+  const handleRemoveTemplateGroupCropGroup = async (id: number) => {
+    try {
+      await deleteTemplateGroupCropGroup(id);
+      await loadGroupsData();
+    } catch (error) {
+      console.error("Ошибка удаления связи групп", error);
+      throw error;
+    }
+  };
+
+  // Функции для управления измерениями в связках
+  const handleAddMeasurementToGroup = async (templateGroupCropGroupId: number, measurementTypeId: number) => {
+    try {
+      const newId = await createTemplateGroupCropGroupMeasurement(templateGroupCropGroupId, measurementTypeId);
+      await loadGroupsData();
+      return newId;
+    } catch (error) {
+      console.error("Ошибка добавления измерения в группу", error);
+      throw error;
+    }
+  };
+
+  const handleRemoveMeasurementFromGroup = async (id: number) => {
+    try {
+      await deleteTemplateGroupCropGroupMeasurement(id);
+      await loadGroupsData();
+    } catch (error) {
+      console.error("Ошибка удаления измерения из группы", error);
+      throw error;
+    }
+  };
+
+    const handleDeleteTemplateGroup = async (templateGroupId: number) => {
+      try {
+        setIsSaving(true);
+        console.log(`🗑️ Deleting template group ${templateGroupId}...`);
+        
+        // Получаем все шаблоны в группе
+        const templateIds = templateGroups
+          .filter(tg => tg.template_group_id === templateGroupId)
+          .map(tg => tg.scout_report_template_id);
+        
+        // Удаляем правила для всех шаблонов в группе
+        for (const templateId of templateIds) {
+          await deleteTemplateThresholds(templateId);
+        }
+        
+        // Обновляем данные
+        const [indicators, allRules] = await Promise.all([
+          getIndicators(),
+          getAllThresholds()
+        ]);
+        
+        setExistingRules(allRules);
+        setGroupsThresholdsData(indicators); // Просто устанавливаем новые данные
+        
+        // Перезагружаем данные групп
+        await loadGroupsData();
+        
+      } catch (error) {
+        console.error(`❌ Failed to delete template group ${templateGroupId}:`, error);
+        throw error;
+      } finally {
+        setIsSaving(false);
+      }
+    };
+
+    const handleDeleteCropGroup = async (templateGroupId: number, cropGroupId: number) => {
+      try {
+        setIsSaving(true);
+        console.log(`🗑️ Deleting crop group ${cropGroupId} from template group ${templateGroupId}...`);
+        
+        // Получаем все шаблоны в группе
+        const templateIds = templateGroups
+          .filter(tg => tg.template_group_id === templateGroupId)
+          .map(tg => tg.scout_report_template_id);
+        
+        // Получаем все культуры в группе
+        const cropIds = cropGroups
+          .filter(cg => cg.crop_group_id === cropGroupId)
+          .map(cg => cg.crop_id);
+        
+        // Удаляем правила для всех комбинаций
+        for (const templateId of templateIds) {
+          for (const cropId of cropIds) {
+            await deleteCropThresholds(templateId, cropId);
+          }
+        }
+        
+        // Обновляем данные
+        const [indicators, allRules] = await Promise.all([
+          getIndicators(),
+          getAllThresholds()
+        ]);
+        
+        setExistingRules(allRules);
+        setGroupsThresholdsData(indicators); // Просто устанавливаем новые данные
+        
+        // Перезагружаем данные групп
+        await loadGroupsData();
+        
+      } catch (error) {
+        console.error(`❌ Failed to delete crop group ${cropGroupId}:`, error);
+        throw error;
+      } finally {
+        setIsSaving(false);
+      }
+    };
+
+  const handleSaveGroupsThresholds = async (updatedIndicators: GroupsIndicatorsData) => {
     try {
       setIsSaving(true);
-      console.log(`🗑️ Deleting crop ${cropId} from template ${templateId}...`);
+      console.log("Saving groups thresholds:", updatedIndicators);
       
-      // Удаляем все правила для этой культуры в шаблоне
-      await deleteCropThresholds(templateId, cropId);
+      // Прямо как в старом редакторе
+      await saveAllThresholds(
+    groupsThresholdsData, 
+    updatedIndicators, 
+    existingRules,
+    templateGroupCropGroups,      // Добавить из состояния
+    templateGroupCropGroupMeasurements // Добавить из состояния
+  );
       
-      // Обновляем данные
-      const [indicators, allRules] = await Promise.all([
-        getIndicators(),
-        getAllThresholds()
-      ]);
+      // Обновляем состояние
+      setGroupsThresholdsData(updatedIndicators);
       
-      // Обновляем existingRules
-      setExistingRules(allRules);
+      // Обновляем правила
+      const updatedRules = await getAllThresholds();
+      setExistingRules(updatedRules);
       
-      // Обновляем thresholdsData
-      const convertedData: IndicatorsData = {}
-      
-      if (indicators && Object.keys(indicators).length > 0) {
-        Object.entries(indicators).forEach(([tId, templateData]) => {
-          convertedData[tId] = {}
-          
-          Object.entries(templateData).forEach(([cId, cropData]) => {
-            convertedData[tId][cId] = {}
-            
-            Object.entries(cropData).forEach(([mId, zones]) => {
-              convertedData[tId][cId][mId] = zones.map(zone => ({
-                threshold_value: zone.threshold_value,
-                zone: zone.zone
-              }))
-            })
-          })
-        })
-      }
-      
-      setThresholdsData(convertedData);
-      
-      console.log(`✅ Crop ${cropId} deleted successfully from template ${templateId}`);
+      console.log("Groups thresholds saved successfully");
       
     } catch (error) {
-      console.error(`❌ Failed to delete crop ${cropId} from template ${templateId}:`, error);
+      console.error("Error saving groups thresholds:", error);
       throw error;
     } finally {
       setIsSaving(false);
@@ -154,6 +279,8 @@ function App() {
           getAllThresholds()
         ]);
 
+        console.log('📊 Indicators from API:', indicators);
+
         reportsRef.current = reports;
         setExistingRules(allRules);
 
@@ -165,26 +292,11 @@ function App() {
         setReportTemplates(handbooks.scout_report_templates || [])
         setMeasurementTypes(handbooks.scout_report_measurement_types || [])
 
-        const convertedData: IndicatorsData = {}
-        
-        if (indicators && Object.keys(indicators).length > 0) {
-          Object.entries(indicators).forEach(([templateId, templateData]) => {
-            convertedData[templateId] = {}
-            
-            Object.entries(templateData).forEach(([cropId, cropData]) => {
-              convertedData[templateId][cropId] = {}
-              
-              Object.entries(cropData).forEach(([measurementId, zones]) => {
-                convertedData[templateId][cropId][measurementId] = zones.map(zone => ({
-                  threshold_value: zone.threshold_value,
-                  zone: zone.zone
-                }))
-              })
-            })
-          })
-        }
-        
-        setThresholdsData(convertedData)
+        // Просто устанавливаем indicators как есть
+        setGroupsThresholdsData(indicators);
+
+        // Загружаем все данные групп
+        await loadGroupsData();
 
       } catch (error) {
         console.error("Ошибка загрузки данных", error)
@@ -195,59 +307,6 @@ function App() {
 
     loadAll()
   }, [season])
-
-  // useEffect для обновления templates при изменении thresholdsData
-  useEffect(() => {
-    if (isLoading || !reportsRef.current.length || Object.keys(thresholdsData).length === 0) {
-      return;
-    }
-
-    // console.log("🔄 Updating templates with new thresholds:", thresholdsData);
-    
-    const indicatorsForAggregation: any = {};
-    
-    Object.entries(thresholdsData).forEach(([templateId, templateData]) => {
-      indicatorsForAggregation[templateId] = {};
-      
-      Object.entries(templateData).forEach(([cropId, cropData]) => {
-        indicatorsForAggregation[templateId][cropId] = {};
-        
-        Object.entries(cropData).forEach(([measurementId, zones]) => {
-          indicatorsForAggregation[templateId][cropId][measurementId] = zones.map(zone => ({
-            threshold_value: zone.threshold_value,
-            zone: zone.zone
-          }));
-        });
-      });
-    });
-
-    const filteredReports = reportsRef.current.filter(r => r.scout_report_id);
-    const aggregated = aggregateTemplates(filteredReports, indicatorsForAggregation);
-    setTemplates(aggregated);
-    
-  }, [thresholdsData, isLoading]);
-
-  const handleSaveThresholds = async (updatedIndicators: IndicatorsData) => {
-    try {
-      setIsSaving(true)
-      console.log("Saving thresholds:", updatedIndicators)
-      
-      await saveAllThresholds(thresholdsData, updatedIndicators, existingRules)
-      
-      setThresholdsData(updatedIndicators)
-      
-      const updatedRules = await getAllThresholds()
-      setExistingRules(updatedRules)
-      
-      console.log("Thresholds saved successfully")
-      
-    } catch (error) {
-      console.error("Error saving thresholds:", error)
-      throw error
-    } finally {
-      setIsSaving(false)
-    }
-  }
 
   if (isLoading) {
     return (
@@ -272,20 +331,44 @@ function App() {
         currentView={currentView}
       />
       <div className="p-4 max-w-7xl mx-auto mt-8 space-y-8">
-        {currentView === 'table' ? (
+
+        {currentView === 'table' && (
           <ScoutingTemplateTableNested templates={templates} />
-        ) : (
-          <ThresholdsEditor
-            indicators={thresholdsData}
+        )}
+        {currentView === 'zones' && (
+          <GroupsThresholdsEditor
+            indicators={groupsThresholdsData}
             handbooks={{
               crops,
               scout_report_templates: reportTemplates,
               scout_report_measurement_types: measurementTypes
             }}
-            onSave={handleSaveThresholds}
-            onDeleteTemplate={handleDeleteTemplate}
-            onDeleteCrop={handleDeleteCrop}
+            templateGroupNames={templateGroupNames}
+            templateGroups={templateGroups}
+            cropGroupNames={cropGroupNames}
+            cropGroups={cropGroups}
+            templateGroupCropGroups={templateGroupCropGroups}
+            templateGroupCropGroupMeasurements={templateGroupCropGroupMeasurements}
+            onAddTemplateGroupCropGroup={handleAddTemplateGroupCropGroup}
+            onRemoveTemplateGroupCropGroup={handleRemoveTemplateGroupCropGroup}
+            onAddMeasurementToGroup={handleAddMeasurementToGroup}
+            onRemoveMeasurementFromGroup={handleRemoveMeasurementFromGroup}
+            onSave={handleSaveGroupsThresholds}
+            onDeleteTemplateGroup={handleDeleteTemplateGroup}
+            onDeleteCropGroup={handleDeleteCropGroup}
             isSaving={isSaving}
+          />
+        )}
+        {currentView === 'groups' && (
+          <GroupsManager
+            templates={reportTemplates}
+            crops={crops}
+            templateGroupNames={templateGroupNames}
+            templateGroups={templateGroups}
+            cropGroupNames={cropGroupNames}
+            cropGroups={cropGroups}
+            onUpdate={loadGroupsData}
+            onClose={() => setCurrentView('table')}
           />
         )}
       </div>

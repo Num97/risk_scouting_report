@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
+import { Plus, ChevronRight, ArrowLeft } from 'lucide-react';
 import TemplatesList from './TemplatesList';
 import CropsList from './CropsList';
 import MeasurementsList from './MeasurementsList';
@@ -144,20 +144,6 @@ const ThresholdsEditor: React.FC<ThresholdsEditorProps> = ({
           }
         }
       }));
-    }
-  };
-
-  const handleSave = async () => {
-    if (!onSave) return;
-    
-    try {
-      setIsLocalSaving(true);
-      await onSave(editedIndicators);
-    } catch (error) {
-      console.error('Save failed:', error);
-      // Здесь можно показать уведомление об ошибке
-    } finally {
-      setIsLocalSaving(false);
     }
   };
 
@@ -377,39 +363,16 @@ const ThresholdsEditor: React.FC<ThresholdsEditorProps> = ({
          navigation.selectedTemplateId && 
          navigation.selectedCropId && 
          navigation.selectedMeasurementId && (
-          // <ZonesEditor
-          //   zones={editedIndicators[navigation.selectedTemplateId]?.[navigation.selectedCropId]?.[navigation.selectedMeasurementId] || []}
-          //   measurementName={measurement?.human_name || ''}
-          //   onChange={handleZonesChange}
-          //   disabled={savingInProgress}
-          // />
           <ZonesEditor
-  zones={editedIndicators[navigation.selectedTemplateId]?.[navigation.selectedCropId]?.[navigation.selectedMeasurementId] || []}
-  measurementName={measurement?.human_name || ''}
-  onChange={handleZonesChange}
-  onAutoSave={handleZonesAutoSave}
-  disabled={savingInProgress}
-  isSaving={savingInProgress}
-/>
+            zones={editedIndicators[navigation.selectedTemplateId]?.[navigation.selectedCropId]?.[navigation.selectedMeasurementId] || []}
+            measurementName={measurement?.human_name || ''}
+            onChange={handleZonesChange}
+            onAutoSave={handleZonesAutoSave}
+            disabled={savingInProgress}
+            isSaving={savingInProgress}
+          />
         )}
       </CardContent>
-
-      {/* <div className="flex justify-end p-4 border-t">
-        <Button 
-          onClick={handleSave}
-          disabled={savingInProgress}
-          className="min-w-[140px]"
-        >
-          {savingInProgress ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Сохранение...
-            </>
-          ) : (
-            'Сохранить изменения'
-          )}
-        </Button>
-      </div> */}
 
       {/* Единый диалог для всех типов добавления */}
       {dialogProps && (

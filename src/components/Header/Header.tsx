@@ -8,9 +8,15 @@
 
 // interface HeaderProps {
 //   onSeasonChange: (year: number) => void;
+//   onViewChange: (view: 'table' | 'zones') => void;
+//   currentView: 'table' | 'zones';
 // }
 
-// export const Header: FC<HeaderProps> = ({ onSeasonChange }) => {
+// export const Header: FC<HeaderProps> = ({ 
+//   onSeasonChange, 
+//   onViewChange, 
+//   currentView 
+// }) => {
 //   const { theme, setTheme, systemTheme } = useTheme();
 //   const [mounted, setMounted] = useState(false);
 
@@ -52,6 +58,10 @@
 
 //   const goHub = () => window.location.assign('/hub');
 
+//   const handleViewToggle = () => {
+//     onViewChange(currentView === 'table' ? 'zones' : 'table');
+//   };
+
 //   return (
 //     <header className="flex justify-between items-center p-4 bg-stone-200 dark:bg-stone-800">
 //       <div className="flex items-center gap-4">
@@ -81,13 +91,19 @@
 //         Рисковый отчет 🌿
 //       </h1>
 
-//       {/* Кнопка переключения темы */}
+//       {/* Кнопки управления */}
 //       <div className="gap-6 flex items-center">
-//       <Button variant="outline" className="cursor-pointer w-30">Зоны</Button>
-//       <Button variant="outline" onClick={toggleTheme} className="cursor-pointer w-30">
-//         {currentTheme === 'dark' ? <MoonIcon /> : <SunIcon />}
-//         {currentTheme === "dark" ? "Тёмная" : "Светлая"}
-//       </Button>
+//         <Button 
+//           variant="outline" 
+//           className={`cursor-pointer w-30 ${currentView === 'zones' ? 'bg-stone-300 dark:bg-stone-600' : ''}`}
+//           onClick={handleViewToggle}
+//         >
+//           {currentView === 'table' ? 'Зоны' : 'Таблица'}
+//         </Button>
+//         <Button variant="outline" onClick={toggleTheme} className="cursor-pointer w-30">
+//           {currentTheme === 'dark' ? <MoonIcon /> : <SunIcon />}
+//           {currentTheme === "dark" ? "Тёмная" : "Светлая"}
+//         </Button>
 //       </div>
 //     </header>
 //   );
@@ -99,11 +115,12 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import SunIcon from "../LiveIcons/SunIcon/SunIcon";
 import MoonIcon from "../LiveIcons/MoonIcon/MoonIcon";
+import { FolderTree } from "lucide-react";
 
 interface HeaderProps {
   onSeasonChange: (year: number) => void;
-  onViewChange: (view: 'table' | 'zones') => void;
-  currentView: 'table' | 'zones';
+  onViewChange: (view: 'table' | 'zones' | 'groups') => void;
+  currentView: 'table' | 'zones' | 'groups';
 }
 
 export const Header: FC<HeaderProps> = ({ 
@@ -152,10 +169,6 @@ export const Header: FC<HeaderProps> = ({
 
   const goHub = () => window.location.assign('/hub');
 
-  const handleViewToggle = () => {
-    onViewChange(currentView === 'table' ? 'zones' : 'table');
-  };
-
   return (
     <header className="flex justify-between items-center p-4 bg-stone-200 dark:bg-stone-800">
       <div className="flex items-center gap-4">
@@ -186,17 +199,31 @@ export const Header: FC<HeaderProps> = ({
       </h1>
 
       {/* Кнопки управления */}
-      <div className="gap-6 flex items-center">
+      <div className="gap-2 flex items-center">
         <Button 
           variant="outline" 
-          className={`cursor-pointer w-30 ${currentView === 'zones' ? 'bg-stone-300 dark:bg-stone-600' : ''}`}
-          onClick={handleViewToggle}
+          className={`cursor-pointer ${currentView === 'table' ? 'bg-stone-300 dark:bg-stone-600' : ''}`}
+          onClick={() => onViewChange('table')}
         >
-          {currentView === 'table' ? 'Зоны' : 'Таблица'}
+          Таблица
         </Button>
-        <Button variant="outline" onClick={toggleTheme} className="cursor-pointer w-30">
+        <Button 
+          variant="outline" 
+          className={`cursor-pointer ${currentView === 'zones' ? 'bg-stone-300 dark:bg-stone-600' : ''}`}
+          onClick={() => onViewChange('zones')}
+        >
+          Зоны
+        </Button>
+        <Button 
+          variant="outline" 
+          className={`cursor-pointer flex items-center gap-2 ${currentView === 'groups' ? 'bg-stone-300 dark:bg-stone-600' : ''}`}
+          onClick={() => onViewChange('groups')}
+        >
+          <FolderTree className="h-4 w-4" />
+          Группы
+        </Button>
+        <Button variant="outline" onClick={toggleTheme} className="cursor-pointer ml-2">
           {currentTheme === 'dark' ? <MoonIcon /> : <SunIcon />}
-          {currentTheme === "dark" ? "Тёмная" : "Светлая"}
         </Button>
       </div>
     </header>
