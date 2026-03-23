@@ -22,7 +22,6 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
   );
   
   const [validationErrors, setValidationErrors] = useState<Map<number, string>>(new Map());
-  const [duplicateValues, setDuplicateValues] = useState<Set<number>>(new Set());
   const [lastSavedZones, setLastSavedZones] = useState<ThresholdValue[]>(
     [...(zones || [])].sort((a, b) => a.threshold_value - b.threshold_value)
   );
@@ -113,21 +112,9 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     });
     
     setValidationErrors(errors);
-    setDuplicateValues(duplicates);
     return errors.size === 0;
   };
 
-  // Сохранение при изменении
-  // const saveIfNeeded = (newZones: ThresholdValue[]) => {
-  //   const isValid = validateZones(newZones);
-  //   const hasChanges = JSON.stringify(newZones) !== JSON.stringify(lastSavedZones);
-    
-  //   if (isValid && hasChanges && onAutoSave && !disabled && !isSaving) {
-  //     onAutoSave(newZones);
-  //     setLastSavedZones(newZones);
-  //     setShowSaveSuccess(true);
-  //   }
-  // };
   const saveIfNeeded = (newZones: ThresholdValueWithId[]) => {
   const isValid = validateZones(newZones);
   const hasChanges = JSON.stringify(newZones) !== JSON.stringify(lastSavedZones);
@@ -284,30 +271,6 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
   const getInputValue = (index: number) => {
     return inputValues[index] !== undefined ? inputValues[index] : localZones[index].threshold_value.toString();
   };
-
-  // const handleUpdateZone = (index: number, field: keyof ThresholdValue, value: string | number) => {
-  //   if (disabled) return;
-    
-  //   if (index === 0 && field === 'threshold_value') {
-  //     return;
-  //   }
-    
-  //   const updatedZones = [...localZones];
-    
-  //   if (field === 'zone') {
-  //     if (value === 'green' || value === 'orange' || value === 'red') {
-  //       updatedZones[index] = { 
-  //         ...updatedZones[index], 
-  //         [field]: value 
-  //       };
-        
-  //       const sortedZones = [...updatedZones].sort((a, b) => a.threshold_value - b.threshold_value);
-  //       setLocalZones(sortedZones);
-  //       onChange(sortedZones);
-  //       saveIfNeeded(sortedZones);
-  //     }
-  //   }
-  // };
 
 const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, value: string | number) => {
   if (disabled) return;

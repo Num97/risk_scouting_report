@@ -8,7 +8,7 @@ import MeasurementsList from './MeasurementsList';
 import ZonesEditor from './ZonesEditor';
 import AddItemDialog from '../ThresholdsEditor/AddItemDialog';
 import type { ThresholdValue } from './types';
-import type { GroupsThresholdsEditorProps, NavigationState, DialogType, GroupsIndicatorsData } from './types';
+import type { GroupsThresholdsEditorProps, NavigationState, DialogType } from './types';
 import type { ScoutReportMeasurementType } from '@/types/handbooks';
 import type { TemplateGroupName, CropGroupName } from '@/types/groups';
 import type { ThresholdValueWithId } from '@/api/scoutingReportApi';
@@ -26,6 +26,7 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
   onAddMeasurementToGroup,
   onDeleteTemplateGroup,
   onDeleteCropGroup,
+  onRemoveMeasurementFromGroup,
   onSave,
   isSaving = false
 }) => {
@@ -69,19 +70,6 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
 
     return () => clearTimeout(timer);
   }, [editedIndicators, onSave]);
-
-  // ... остальные мемоизированные вычисления (без изменений)
-  const getTemplatesInGroup = useCallback((groupId: number): number[] => {
-    return templateGroups
-      .filter(tg => tg.template_group_id === groupId)
-      .map(tg => tg.scout_report_template_id);
-  }, [templateGroups]);
-
-  const getCropsInGroup = useCallback((groupId: number): number[] => {
-    return cropGroups
-      .filter(cg => cg.crop_group_id === groupId)
-      .map(cg => cg.crop_id);
-  }, [cropGroups]);
 
   const getTemplateGroupCropGroupId = useCallback((templateGroupId: number, cropGroupId: number): number | null => {
     const found = templateGroupCropGroups.find(
@@ -380,20 +368,101 @@ const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) =>
           getName: (item: TemplateGroupName) => item.template_group_name
         };
       
+      // case 'cropGroup':
+      //   return {
+      //     items: availableCropGroups,
+      //     existingItemIds: new Set<string>(),
+      //     onAddItem: handleAddCropGroup,
+      //     title: 'Добавить группу культур',
+      //     description: 'Выберите группу культур для добавления к текущей группе шаблонов',
+      //     searchPlaceholder: 'Поиск групп культур...',
+      //     noItemsMessage: 'Нет доступных групп культур',
+      //     noResultsMessage: 'Группы не найдены',
+      //     getId: (item: CropGroupName) => item.id,
+      //     getName: (item: CropGroupName) => item.crop_group_name
+      //   };
       case 'cropGroup':
+  // Функция для получения культур в группе
+  const getCropsInGroup = (groupId: number) => {
+    return cropGroups
+      .filter(cg => cg.crop_group_id === groupId)
+      .map(cg => {
+        const crop = handbooks.crops.find(c => c.crop_id === cg.crop_id);
         return {
-          items: availableCropGroups,
-          existingItemIds: new Set<string>(),
-          onAddItem: handleAddCropGroup,
-          title: 'Добавить группу культур',
-          description: 'Выберите группу культур для добавления к текущей группе шаблонов',
-          searchPlaceholder: 'Поиск групп культур...',
-          noItemsMessage: 'Нет доступных групп культур',
-          noResultsMessage: 'Группы не найдены',
-          getId: (item: CropGroupName) => item.id,
-          getName: (item: CropGroupName) => item.crop_group_name
+          id: cg.crop_id,
+          name: crop?.crop_name || `Культура ${cg.crop_id}`
         };
+      });
+  };
+
+  // Функция валидации группы культур
+  const validateCropGroup = (item: CropGroupName) => {
+    // Получаем уже добавленные группы культур для этого шаблона
+    const existingGroupIds = templateGroupCropGroups
+      .filter(tgcg => tgcg.template_group_id === Number(navigation.selectedTemplateGroupId))
+      .map(tgcg => tgcg.crop_group_id);
+    
+    // Получаем все культуры из уже добавленных групп
+    const existingCrops = new Set<number>();
+    existingGroupIds.forEach(groupId => {
+      cropGroups
+        .filter(cg => cg.crop_group_id === groupId)
+        .forEach(cg => existingCrops.add(cg.crop_id));
+    });
+    
+    // Получаем культуры из новой группы
+    const newGroupCrops = cropGroups
+      .filter(cg => cg.crop_group_id === item.id)
+      .map(cg => cg.crop_id);
+    
+    // Находим пересечения
+    const conflictingCrops = newGroupCrops.filter(cropId => existingCrops.has(cropId));
+    
+    if (conflictingCrops.length > 0) {
+      const conflictCrops = conflictingCrops.map(cropId => {
+        const crop = handbooks.crops.find(c => c.crop_id === cropId);
+        // Находим, в какой группе уже есть эта культура
+        const existingGroupId = existingGroupIds.find(groupId => 
+          cropGroups.some(cg => cg.crop_group_id === groupId && cg.crop_id === cropId)
+        );
+        const existingGroup = cropGroupNames.find(g => g.id === existingGroupId);
+        
+        return {
+          id: cropId,
+          name: crop?.crop_name || `Культура ${cropId}`,
+          groupName: existingGroup?.crop_group_name || 'неизвестной группе'
+        };
+      });
       
+      return {
+        isValid: false,
+        conflictCrops,
+        errorMessage: `Группа содержит культуры, которые уже есть в других группах`
+      };
+    }
+    
+    return { isValid: true };
+  };
+
+  return {
+    items: availableCropGroups,
+    existingItemIds: new Set<string>(),
+    onAddItem: handleAddCropGroup,
+    title: 'Добавить группу культур',
+    description: 'Выберите группу культур для добавления к текущей группе шаблонов',
+    searchPlaceholder: 'Поиск групп культур...',
+    noItemsMessage: 'Нет доступных групп культур',
+    noResultsMessage: 'Группы не найдены',
+    getId: (item: CropGroupName) => item.id,
+    getName: (item: CropGroupName) => item.crop_group_name,
+    validateCropGroup,
+    getCropsInGroup,
+    allCropGroups: cropGroups,
+    allCrops: handbooks.crops,
+    existingCropGroupIds: templateGroupCropGroups
+      .filter(tgcg => tgcg.template_group_id === Number(navigation.selectedTemplateGroupId))
+      .map(tgcg => tgcg.crop_group_id),
+  };
       case 'measurement':
         return {
           items: availableMeasurements,
@@ -430,15 +499,6 @@ const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) =>
           )}
           <CardTitle>Редактор пороговых значений для групп</CardTitle>
         </div>
-        {navigation.view === 'templateGroups' && (
-          <Button 
-            onClick={() => openDialog('templateGroup')}
-            disabled={savingInProgress}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Добавить группу шаблонов
-          </Button>
-        )}
         {navigation.view === 'cropGroups' && (
           <Button 
             onClick={() => openDialog('cropGroup')}
@@ -523,6 +583,7 @@ const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) =>
             templateGroupCropGroupMeasurements={templateGroupCropGroupMeasurements}
             templateGroupCropGroups={templateGroupCropGroups}
             onSelect={handleMeasurementSelect}
+            onDelete={onRemoveMeasurementFromGroup}
             onAdd={() => openDialog('measurement')}
           />
         )}

@@ -106,6 +106,7 @@ export interface MeasurementsListProps {
   templateGroupCropGroupMeasurements: TemplateGroupCropGroupMeasurement[]; // Добавляем для отображения уже добавленных измерений
   templateGroupCropGroups: TemplateGroupCropGroup[]; // Нужно для получения ID связки
   onSelect: (measurementId: string) => void;
+  onDelete?: (measurementLinkId: number) => Promise<void>; 
   onAdd: () => void;
 }
 

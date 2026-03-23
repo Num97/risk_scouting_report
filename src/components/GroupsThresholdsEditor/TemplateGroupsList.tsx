@@ -1,22 +1,14 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Trash2 } from 'lucide-react';
 import type { TemplateGroupsListProps } from './types';
 
 const TemplateGroupsList: React.FC<TemplateGroupsListProps> = ({
   indicators,
   templateGroupNames,
-  templateGroups,
-  templates,
   cropGroupNames,
   templateGroupCropGroups,
   onSelect,
-  onDelete,
 }) => {
-  // Получаем все группы шаблонов
-  const allGroups = templateGroupNames;
-
   // Получаем название группы культур по ID
   const getCropGroupName = (cropGroupId: number): string => {
     const group = cropGroupNames.find(g => g.id === cropGroupId);
@@ -35,24 +27,10 @@ const TemplateGroupsList: React.FC<TemplateGroupsListProps> = ({
     return indicators[groupId] !== undefined || indicators[groupId.toString()] !== undefined;
   };
 
-  const handleDeleteGroup = async (e: React.MouseEvent, groupId: number) => {
-    e.stopPropagation();
-    
-    if (!window.confirm('Вы уверены, что хотите удалить эту группу шаблонов?')) {
-      return;
-    }
-    
-    try {
-      await onDelete?.(groupId);
-    } catch (error) {
-      console.error('Failed to delete template group:', error);
-    }
-  };
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {allGroups.map((group) => {
+        {templateGroupNames.map((group) => {
           const groupId = group.id;
           const hasData = hasThresholds(groupId);
           
@@ -62,32 +40,19 @@ const TemplateGroupsList: React.FC<TemplateGroupsListProps> = ({
           return (
             <Card
               key={groupId}
-              className={`cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02] relative group
+              className={`cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]
                 ${hasData ? 'border-primary/50' : 'border-dashed border-stone-300 dark:border-stone-700'}`}
               onClick={() => onSelect(groupId.toString())}
             >
               <CardContent className="p-4">
-                <div className="flex justify-between items-start">
-                  <h3 className="font-semibold text-lg mb-2">
-                    {group.template_group_name}
-                    {!hasData && (
-                      <span className="ml-2 text-xs font-normal text-muted-foreground">
-                        (нет порогов)
-                      </span>
-                    )}
-                  </h3>
-                  
-                  {/* Кнопка удаления */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => handleDeleteGroup(e, groupId)}
-                    disabled={!onDelete}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                <h3 className="font-semibold text-lg mb-2">
+                  {group.template_group_name}
+                  {!hasData && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      (нет порогов)
+                    </span>
+                  )}
+                </h3>
                 
                 <div className="space-y-3">
                   {/* Информация о связанных группах культур */}
@@ -126,7 +91,7 @@ const TemplateGroupsList: React.FC<TemplateGroupsListProps> = ({
         })}
       </div>
       
-      {allGroups.length === 0 && (
+      {templateGroupNames.length === 0 && (
         <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
           Нет доступных групп шаблонов
         </div>

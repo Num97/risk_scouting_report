@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Trash2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { MeasurementsListProps } from './types';
 
@@ -12,6 +13,7 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
   templateGroupCropGroupMeasurements,
   templateGroupCropGroups,
   onSelect,
+  onDelete, // Добавляем проп для удаления
 }) => {
   console.log('MeasurementsList received props:', { 
     indicators, 
@@ -47,7 +49,6 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
   console.log('Existing measurement IDs from DB:', Array.from(existingMeasurementIdsFromDB));
 
   // Получаем данные для текущей группы шаблонов и группы культур
-  // Структура: indicators[templateGroupId][cropGroupId][measurementId]
   const templateGroupData = indicators[templateGroupId] || indicators[templateGroupIdNum] || {};
   console.log('TemplateGroupData:', templateGroupData);
   
@@ -67,6 +68,32 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
     const zones = cropGroupData[measurementId] || [];
     console.log(`Zones for measurement ${measurementId}:`, zones);
     return zones;
+  };
+
+  // Обработчик удаления измерения
+  const handleDeleteMeasurement = async (e: React.MouseEvent, measurementId: number) => {
+    e.stopPropagation(); // Предотвращаем клик по карточке
+    
+    // Находим ID записи в templateGroupCropGroupMeasurements
+    const measurementLink = templateGroupCropGroupMeasurements.find(
+      m => m.template_group_crop_group_id === tgcgId && 
+           m.scout_report_measurement_type_id === measurementId
+    );
+    
+    if (!measurementLink?.id) {
+      console.error('Measurement link not found');
+      return;
+    }
+    
+    if (!window.confirm('Вы уверены, что хотите удалить это измерение? Все пороговые значения для него также будут удалены.')) {
+      return;
+    }
+    
+    try {
+      await onDelete?.(measurementLink.id);
+    } catch (error) {
+      console.error('Failed to delete measurement:', error);
+    }
   };
 
   // Вычисляем максимальное значение для адаптивной шкалы
@@ -123,20 +150,31 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
             const measurementId = measurement.scout_report_measurement_type_id.toString();
             const zones = getZonesForMeasurement(measurementId);
             
-            // Сортируем зоны по пороговому значению
             const sortedZones = [...zones].sort((a, b) => a.threshold_value - b.threshold_value);
             const maxThreshold = getMaxThreshold(sortedZones);
             
             return (
               <Card
                 key={measurementId}
-                className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02] border-primary group"
+                className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02] border-primary group relative"
                 onClick={() => onSelect(measurementId)}
               >
                 <CardContent className="p-4">
+                  {/* Кнопка удаления */}
+                  {onDelete && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      onClick={(e) => handleDeleteMeasurement(e, measurement.scout_report_measurement_type_id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                  
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-lg mb-2">
+                      <h3 className="font-semibold text-lg mb-2 pr-8">
                         {measurement.human_name}
                       </h3>
                       
@@ -157,7 +195,6 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
                           )}
                         </div>
                         
-                        {/* Визуализация зон в виде адаптивной шкалы */}
                         {sortedZones.length > 0 && (
                           <div className="space-y-2">
                             <div className="flex h-6 rounded-lg overflow-hidden shadow-inner">
@@ -191,14 +228,12 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
                                         от {currentValue} до {nextValue}
                                         {idx === sortedZones.length - 1 && ' и выше'}
                                       </p>
-                                      {currentValue === 0 && <p className="text-xs text-muted-foreground">(начальная)</p>}
                                     </TooltipContent>
                                   </Tooltip>
                                 );
                               })}
                             </div>
                             
-                            {/* Значения зон в виде тегов */}
                             <div className="flex flex-wrap gap-1 mt-2">
                               {sortedZones.map((zone, idx) => (
                                 <span
@@ -212,7 +247,6 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
                           </div>
                         )}
                         
-                        {/* Если зон нет */}
                         {sortedZones.length === 0 && (
                           <div className="text-sm text-muted-foreground italic">
                             Нет настроенных зон
@@ -220,7 +254,6 @@ const MeasurementsList: React.FC<MeasurementsListProps> = ({
                         )}
                       </div>
                     </div>
-                    <Settings className="h-4 w-4 text-muted-foreground ml-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </CardContent>
               </Card>

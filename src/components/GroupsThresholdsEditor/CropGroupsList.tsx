@@ -127,15 +127,6 @@ const CropGroupsList: React.FC<CropGroupsListProps> = ({
     }
   };
 
-  const getZoneText = (zone: string) => {
-    switch (zone) {
-      case 'red': return 'Красная';
-      case 'orange': return 'Оранжевая';
-      case 'green': return 'Зеленая';
-      default: return zone;
-    }
-  };
-
   const getMaxThreshold = (zones: any[]) => {
     if (!zones || zones.length === 0) return 100;
     const maxValue = Math.max(...zones.map(z => z.threshold_value));

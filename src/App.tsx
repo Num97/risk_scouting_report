@@ -41,7 +41,6 @@ import {
 import { 
   saveAllThresholds
 } from "./api/scoutingReportApi";
-import type { IndicatorsData } from "./components/ThresholdsEditor/types";
 
 function App() {
   const [templates, setTemplates] = useState<TemplateData[]>([])
@@ -151,7 +150,20 @@ function App() {
   const handleRemoveMeasurementFromGroup = async (id: number) => {
     try {
       await deleteTemplateGroupCropGroupMeasurement(id);
+      
+      // Загружаем свежие данные
+      const [indicators, allRules] = await Promise.all([
+        getIndicators(),
+        getAllThresholds()
+      ]);
+      
+      // Обновляем состояние
+      setGroupsThresholdsData(indicators);
+      setExistingRules(allRules);
+      
+      // Перезагружаем данные групп
       await loadGroupsData();
+      
     } catch (error) {
       console.error("Ошибка удаления измерения из группы", error);
       throw error;
@@ -193,47 +205,45 @@ function App() {
       }
     };
 
-    const handleDeleteCropGroup = async (templateGroupId: number, cropGroupId: number) => {
-      try {
-        setIsSaving(true);
-        console.log(`🗑️ Deleting crop group ${cropGroupId} from template group ${templateGroupId}...`);
-        
-        // Получаем все шаблоны в группе
-        const templateIds = templateGroups
-          .filter(tg => tg.template_group_id === templateGroupId)
-          .map(tg => tg.scout_report_template_id);
-        
-        // Получаем все культуры в группе
-        const cropIds = cropGroups
-          .filter(cg => cg.crop_group_id === cropGroupId)
-          .map(cg => cg.crop_id);
-        
-        // Удаляем правила для всех комбинаций
-        for (const templateId of templateIds) {
-          for (const cropId of cropIds) {
-            await deleteCropThresholds(templateId, cropId);
-          }
-        }
-        
-        // Обновляем данные
-        const [indicators, allRules] = await Promise.all([
-          getIndicators(),
-          getAllThresholds()
-        ]);
-        
-        setExistingRules(allRules);
-        setGroupsThresholdsData(indicators); // Просто устанавливаем новые данные
-        
-        // Перезагружаем данные групп
-        await loadGroupsData();
-        
-      } catch (error) {
-        console.error(`❌ Failed to delete crop group ${cropGroupId}:`, error);
-        throw error;
-      } finally {
-        setIsSaving(false);
-      }
-    };
+const handleDeleteCropGroup = async (templateGroupId: number, cropGroupId: number) => {
+  try {
+    setIsSaving(true);
+    console.log(`🗑️ Deleting crop group ${cropGroupId} from template group ${templateGroupId}...`);
+    
+    // 1. Находим ID связки групп
+    const tgcg = templateGroupCropGroups.find(
+      g => g.template_group_id === templateGroupId && g.crop_group_id === cropGroupId
+    );
+    
+    if (!tgcg) {
+      console.error('Template group crop group not found');
+      return;
+    }
+    
+    // 2. Удаляем связь - каскадно удалятся все измерения и правила в БД
+    await deleteTemplateGroupCropGroup(tgcg.id);
+    
+    // 3. Перезагружаем данные групп (обновит templateGroupCropGroups и связанные данные)
+    await loadGroupsData();
+    
+    // 4. Обновляем пороговые значения из БД
+    const [indicators, allRules] = await Promise.all([
+      getIndicators(),
+      getAllThresholds()
+    ]);
+    
+    setExistingRules(allRules);
+    setGroupsThresholdsData(indicators);
+    
+    console.log(`✅ Crop group ${cropGroupId} deleted successfully`);
+    
+  } catch (error) {
+    console.error(`❌ Failed to delete crop group ${cropGroupId}:`, error);
+    throw error;
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   const handleSaveGroupsThresholds = async (updatedIndicators: GroupsIndicatorsData) => {
     try {
@@ -267,46 +277,101 @@ function App() {
   };
 
   // Загружаем все данные
-  useEffect(() => {
-    async function loadAll() {
-      try {
-        setIsLoading(true);
-        
-        const [reports, indicators, handbooks, allRules] = await Promise.all([
-          getScoutReports(season),
-          getIndicators(),
-          getHandbooks(),
-          getAllThresholds()
-        ]);
+// Загружаем все данные
+useEffect(() => {
+  async function loadAll() {
+    try {
+      setIsLoading(true);
+      
+      // Загружаем все параллельно
+      const [reports, indicators, handbooks, allRules, groupsData] = await Promise.all([
+        getScoutReports(season),
+        getIndicators(),
+        getHandbooks(),
+        getAllThresholds(),
+        Promise.all([
+          getTemplateGroupNames(),
+          getTemplateGroups(),
+          getCropGroupNames(),
+          getCropGroups(),
+          getTemplateGroupCropGroups(),
+          getTemplateGroupCropGroupMeasurements()
+        ])
+      ]);
 
-        console.log('📊 Indicators from API:', indicators);
+      // Распаковываем данные групп
+      const [
+        tGroupNames, 
+        tGroups, 
+        cGroupNames, 
+        cGroups,
+        tgcgGroups,
+        tgcgMeasurements
+      ] = groupsData;
 
-        reportsRef.current = reports;
-        setExistingRules(allRules);
+      // Устанавливаем состояния групп
+      setTemplateGroupNames(tGroupNames);
+      setTemplateGroups(tGroups);
+      setCropGroupNames(cGroupNames);
+      setCropGroups(cGroups);
+      setTemplateGroupCropGroups(tgcgGroups);
+      setTemplateGroupCropGroupMeasurements(tgcgMeasurements);
 
-        const filteredReports = reports.filter(r => r.scout_report_id)
-        const aggregated = aggregateTemplates(filteredReports, indicators)
-        setTemplates(aggregated)
+      console.log('📊 Indicators from API:', indicators);
+      console.log('📊 templateGroups:', tGroups);
+      console.log('📊 cropGroups:', cGroups);
+      console.log('📊 templateGroupCropGroups:', tgcgGroups);
 
-        setCrops(handbooks.crops || [])
-        setReportTemplates(handbooks.scout_report_templates || [])
-        setMeasurementTypes(handbooks.scout_report_measurement_types || [])
+      reportsRef.current = reports;
+      setExistingRules(allRules);
 
-        // Просто устанавливаем indicators как есть
-        setGroupsThresholdsData(indicators);
+      const filteredReports = reports.filter(r => r.scout_report_id)
+      
+      // Агрегируем с загруженными данными групп
+      const aggregated = aggregateTemplates(
+        filteredReports, 
+        indicators,
+        tGroups,
+        cGroups,
+        tgcgGroups
+      )
+      setTemplates(aggregated)
 
-        // Загружаем все данные групп
-        await loadGroupsData();
+      setCrops(handbooks.crops || [])
+      setReportTemplates(handbooks.scout_report_templates || [])
+      setMeasurementTypes(handbooks.scout_report_measurement_types || [])
 
-      } catch (error) {
-        console.error("Ошибка загрузки данных", error)
-      } finally {
-        setIsLoading(false)
-      }
+      // Устанавливаем indicators
+      setGroupsThresholdsData(indicators);
+
+    } catch (error) {
+      console.error("Ошибка загрузки данных", error)
+    } finally {
+      setIsLoading(false)
     }
+  }
 
-    loadAll()
-  }, [season])
+  loadAll()
+}, [season])
+
+useEffect(() => {
+  if (isLoading || reportsRef.current.length === 0) return;
+  
+  console.log('🔄 Recalculating templates due to thresholds change...');
+  
+  const filteredReports = reportsRef.current.filter(r => r.scout_report_id);
+  
+  const aggregated = aggregateTemplates(
+    filteredReports,
+    groupsThresholdsData,
+    templateGroups,
+    cropGroups,
+    templateGroupCropGroups
+  );
+  
+  setTemplates(aggregated);
+  
+}, [groupsThresholdsData, templateGroups, cropGroups, templateGroupCropGroups, isLoading]);
 
   if (isLoading) {
     return (
