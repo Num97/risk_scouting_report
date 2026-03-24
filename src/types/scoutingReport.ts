@@ -21,6 +21,8 @@ export interface ScoutReportItem {
   scout_report_id: number
 
   end_time: string
+  start_time: string
+  report_date: string
 
   scout_report_point: ScoutReportPoint
   scout_report_template_id: number

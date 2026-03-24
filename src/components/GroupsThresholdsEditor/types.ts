@@ -68,6 +68,8 @@ export interface GroupsThresholdsEditorProps {
   onDeleteCropGroup?: (templateGroupId: number, cropGroupId: number) => Promise<void>;
   
   isSaving?: boolean;
+  navigation?: NavigationState;
+  onNavigationChange?: (navigation: NavigationState) => void;
 }
 
 export interface TemplateGroupsListProps {

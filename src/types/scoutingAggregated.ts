@@ -4,6 +4,7 @@ export interface ReportMeasurement {
   scout_report_id: number
   value: number
   zone: 'green' | 'orange' | 'red'
+  report_date: string
 }
 
 export interface MeasurementTypeData {

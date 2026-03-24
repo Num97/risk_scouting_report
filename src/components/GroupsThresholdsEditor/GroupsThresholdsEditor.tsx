@@ -28,9 +28,12 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
   onDeleteCropGroup,
   onRemoveMeasurementFromGroup,
   onSave,
-  isSaving = false
+  isSaving = false,
+  navigation: externalNavigation,
+  onNavigationChange,
 }) => {
-  const [navigation, setNavigation] = useState<NavigationState>({
+  // Внутреннее состояние навигации на случай, если внешнее не передано
+  const [internalNavigation, setInternalNavigation] = useState<NavigationState>({
     view: 'templateGroups',
     selectedTemplateGroupId: null,
     selectedCropGroupId: null,
@@ -38,12 +41,31 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
     selectedTemplateGroupCropGroupId: null
   });
 
+  // Используем внешнее состояние, если оно передано, иначе внутреннее
+  const navigation = externalNavigation ?? internalNavigation;
+  
+  // Функция для обновления навигации
+  const setNavigation = useCallback((newNavigation: NavigationState | ((prev: NavigationState) => NavigationState)) => {
+    if (onNavigationChange) {
+      if (typeof newNavigation === 'function') {
+        onNavigationChange(newNavigation(navigation));
+      } else {
+        onNavigationChange(newNavigation);
+      }
+    } else {
+      if (typeof newNavigation === 'function') {
+        setInternalNavigation(newNavigation);
+      } else {
+        setInternalNavigation(newNavigation);
+      }
+    }
+  }, [navigation, onNavigationChange]);
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<DialogType>('templateGroup');
   const [editedIndicators, setEditedIndicators] = useState(indicators);
   const [isLocalSaving, setIsLocalSaving] = useState(false);
   
-  // Добавляем ref для отслеживания последнего сохраненного состояния
   const lastSavedRef = useRef(indicators);
 
   useEffect(() => {
@@ -51,9 +73,7 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
     lastSavedRef.current = indicators;
   }, [indicators]);
 
-  // Эффект для автосохранения при изменении editedIndicators
   useEffect(() => {
-    // Не сохраняем, если данные не изменились или нет onSave
     if (!onSave || editedIndicators === lastSavedRef.current) {
       return;
     }
@@ -66,7 +86,7 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
         })
         .catch(error => console.error('Auto-save failed:', error))
         .finally(() => setIsLocalSaving(false));
-    }, 500); // Дебаунс 500мс
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [editedIndicators, onSave]);
@@ -135,7 +155,66 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
     return editedIndicators[templateGroupId]?.[cropGroupId]?.[measurementId] || [];
   }, [editedIndicators, navigation]);
 
-  // Обработчики навигации (без изменений)
+  // Функции для валидации групп культур
+  const getCropsInGroup = useCallback((groupId: number) => {
+    return cropGroups
+      .filter(cg => cg.crop_group_id === groupId)
+      .map(cg => {
+        const crop = handbooks.crops.find(c => c.crop_id === cg.crop_id);
+        return {
+          id: cg.crop_id,
+          name: crop?.crop_name || `Культура ${cg.crop_id}`
+        };
+      });
+  }, [cropGroups, handbooks.crops]);
+
+  const validateCropGroup = useCallback((item: CropGroupName) => {
+    const templateGroupId = Number(navigation.selectedTemplateGroupId);
+    if (!templateGroupId) return { isValid: true };
+    
+    const existingGroupIds = templateGroupCropGroups
+      .filter(tgcg => tgcg.template_group_id === templateGroupId)
+      .map(tgcg => tgcg.crop_group_id);
+    
+    const existingCrops = new Set<number>();
+    existingGroupIds.forEach(groupId => {
+      cropGroups
+        .filter(cg => cg.crop_group_id === groupId)
+        .forEach(cg => existingCrops.add(cg.crop_id));
+    });
+    
+    const newGroupCrops = cropGroups
+      .filter(cg => cg.crop_group_id === item.id)
+      .map(cg => cg.crop_id);
+    
+    const conflictingCrops = newGroupCrops.filter(cropId => existingCrops.has(cropId));
+    
+    if (conflictingCrops.length > 0) {
+      const conflictCrops = conflictingCrops.map(cropId => {
+        const crop = handbooks.crops.find(c => c.crop_id === cropId);
+        const existingGroupId = existingGroupIds.find(groupId => 
+          cropGroups.some(cg => cg.crop_group_id === groupId && cg.crop_id === cropId)
+        );
+        const existingGroup = cropGroupNames.find(g => g.id === existingGroupId);
+        
+        return {
+          id: cropId,
+          name: crop?.crop_name || `Культура ${cropId}`,
+          groupName: existingGroup?.crop_group_name || 'неизвестной группе'
+        };
+      });
+      
+      return {
+        isValid: false,
+        conflictCrops,
+        errorMessage: `Группа содержит культуры, которые уже есть в других группах`
+      };
+    }
+    
+    return { isValid: true };
+  }, [navigation.selectedTemplateGroupId, templateGroupCropGroups, cropGroups, handbooks.crops, cropGroupNames]);
+
+  // Обработчики навигации - используем setNavigation
   const handleTemplateGroupSelect = useCallback((templateGroupId: string) => {
     setNavigation({
       view: 'cropGroups',
@@ -144,29 +223,29 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
       selectedMeasurementId: null,
       selectedTemplateGroupCropGroupId: null
     });
-  }, []);
+  }, [setNavigation]);
 
   const handleCropGroupSelect = useCallback((cropGroupId: string) => {
     const templateGroupIdNum = Number(navigation.selectedTemplateGroupId);
     const cropGroupIdNum = Number(cropGroupId);
     const tgcgId = getTemplateGroupCropGroupId(templateGroupIdNum, cropGroupIdNum);
     
-    setNavigation(prev => ({
-      ...prev,
+    setNavigation({
       view: 'measurements',
+      selectedTemplateGroupId: navigation.selectedTemplateGroupId,
       selectedCropGroupId: cropGroupId,
       selectedTemplateGroupCropGroupId: tgcgId?.toString() || null,
       selectedMeasurementId: null
-    }));
-  }, [navigation.selectedTemplateGroupId, getTemplateGroupCropGroupId]);
+    });
+  }, [navigation.selectedTemplateGroupId, getTemplateGroupCropGroupId, setNavigation]);
 
   const handleMeasurementSelect = useCallback((measurementId: string) => {
-    setNavigation(prev => ({
-      ...prev,
+    setNavigation({
+      ...navigation,
       view: 'zones',
       selectedMeasurementId: measurementId
-    }));
-  }, []);
+    });
+  }, [navigation, setNavigation]);
 
   const handleBack = useCallback(() => {
     switch (navigation.view) {
@@ -180,23 +259,23 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
         });
         break;
       case 'measurements':
-        setNavigation(prev => ({
+        setNavigation({
           view: 'cropGroups',
-          selectedTemplateGroupId: prev.selectedTemplateGroupId,
+          selectedTemplateGroupId: navigation.selectedTemplateGroupId,
           selectedCropGroupId: null,
           selectedMeasurementId: null,
           selectedTemplateGroupCropGroupId: null
-        }));
+        });
         break;
       case 'zones':
-        setNavigation(prev => ({
-          ...prev,
+        setNavigation({
+          ...navigation,
           view: 'measurements',
           selectedMeasurementId: null
-        }));
+        });
         break;
     }
-  }, [navigation.view]);
+  }, [navigation, setNavigation]);
 
   const handleAddTemplateGroup = useCallback((templateGroup: TemplateGroupName) => {
     const templateGroupId = templateGroup.id.toString();
@@ -213,7 +292,7 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
       selectedMeasurementId: null,
       selectedTemplateGroupCropGroupId: null
     });
-  }, []);
+  }, [setNavigation]);
 
   const handleAddCropGroup = useCallback(async (cropGroup: CropGroupName) => {
     if (!navigation.selectedTemplateGroupId) return;
@@ -249,100 +328,70 @@ const GroupsThresholdsEditor: React.FC<GroupsThresholdsEditorProps> = ({
     }
   }, [navigation.selectedTemplateGroupCropGroupId, onAddMeasurementToGroup]);
 
-  // ✅ ИСПРАВЛЕНО: handleZonesChange только обновляет локальное состояние
-  // const handleZonesChange = useCallback((zones: ThresholdValue[]) => {
-  //   if (!navigation.selectedTemplateGroupId || !navigation.selectedCropGroupId || !navigation.selectedMeasurementId) return;
+  const handleZonesChange = useCallback((zones: ThresholdValueWithId[]) => {
+    if (!navigation.selectedTemplateGroupId || !navigation.selectedCropGroupId || !navigation.selectedMeasurementId) return;
     
-  //   const templateGroupId = Number(navigation.selectedTemplateGroupId);
-  //   const cropGroupId = Number(navigation.selectedCropGroupId);
-  //   const measurementId = Number(navigation.selectedMeasurementId);
+    const templateGroupId = Number(navigation.selectedTemplateGroupId);
+    const cropGroupId = Number(navigation.selectedCropGroupId);
+    const measurementId = Number(navigation.selectedMeasurementId);
     
-  //   setEditedIndicators(prev => {
-  //     const updated = { ...prev };
+    setEditedIndicators(prev => {
+      const updated = { ...prev };
       
-  //     if (!updated[templateGroupId]) {
-  //       updated[templateGroupId] = {};
-  //     }
-  //     if (!updated[templateGroupId][cropGroupId]) {
-  //       updated[templateGroupId][cropGroupId] = {};
-  //     }
-      
-  //     updated[templateGroupId][cropGroupId][measurementId] = zones;
-      
-  //     return updated;
-  //   });
-  // }, [navigation]);
-
-const handleZonesChange = useCallback((zones: ThresholdValueWithId[]) => {
-  if (!navigation.selectedTemplateGroupId || !navigation.selectedCropGroupId || !navigation.selectedMeasurementId) return;
-  
-  const templateGroupId = Number(navigation.selectedTemplateGroupId);
-  const cropGroupId = Number(navigation.selectedCropGroupId);
-  const measurementId = Number(navigation.selectedMeasurementId);
-  
-  setEditedIndicators(prev => {
-    const updated = { ...prev };
-    
-    if (!updated[templateGroupId]) {
-      updated[templateGroupId] = {};
-    }
-    if (!updated[templateGroupId][cropGroupId]) {
-      updated[templateGroupId][cropGroupId] = {};
-    }
-    
-    updated[templateGroupId][cropGroupId][measurementId] = zones;
-    
-    return updated;
-  });
-}, [navigation]);
-
-const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) => {
-  if (!navigation.selectedTemplateGroupId || !navigation.selectedCropGroupId || !navigation.selectedMeasurementId) return;
-
-  const templateGroupId = Number(navigation.selectedTemplateGroupId);
-  const cropGroupId = Number(navigation.selectedCropGroupId);
-  const measurementId = Number(navigation.selectedMeasurementId);
-
-  // 1. Сначала обновляем локальное состояние
-  setEditedIndicators(prev => {
-    const updated = {
-      ...prev,
-      [templateGroupId]: {
-        ...(prev[templateGroupId] || {}),
-        [cropGroupId]: {
-          ...(prev[templateGroupId]?.[cropGroupId] || {}),
-          [measurementId]: zones
-        }
+      if (!updated[templateGroupId]) {
+        updated[templateGroupId] = {};
       }
-    };
-    return updated;
-  });
+      if (!updated[templateGroupId][cropGroupId]) {
+        updated[templateGroupId][cropGroupId] = {};
+      }
+      
+      updated[templateGroupId][cropGroupId][measurementId] = zones;
+      
+      return updated;
+    });
+  }, [navigation]);
 
-  // 2. Вызываем onSave ПОСЛЕ обновления состояния, а не внутри него
-  if (onSave) {
-    setIsLocalSaving(true);
-    try {
-      // Важно: нужно передать актуальные данные. Можно использовать замыкание,
-      // но надежнее подождать, пока состояние применится, или использовать ref.
-      // Самый простой способ здесь - передать зоны и навигацию в App через onSave,
-      // но onSave ожидает весь объект. Пока оставим так, но вызов вынесен.
-      await onSave({
-        ...editedIndicators, // Здесь может быть старое значение! Это тоже проблема.
+  const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) => {
+    if (!navigation.selectedTemplateGroupId || !navigation.selectedCropGroupId || !navigation.selectedMeasurementId) return;
+
+    const templateGroupId = Number(navigation.selectedTemplateGroupId);
+    const cropGroupId = Number(navigation.selectedCropGroupId);
+    const measurementId = Number(navigation.selectedMeasurementId);
+
+    setEditedIndicators(prev => {
+      const updated = {
+        ...prev,
         [templateGroupId]: {
-          ...(editedIndicators[templateGroupId] || {}),
+          ...(prev[templateGroupId] || {}),
           [cropGroupId]: {
-            ...(editedIndicators[templateGroupId]?.[cropGroupId] || {}),
+            ...(prev[templateGroupId]?.[cropGroupId] || {}),
             [measurementId]: zones
           }
         }
-      });
-    } catch (error) {
-      console.error('Auto-save failed:', error);
-    } finally {
-      setIsLocalSaving(false);
+      };
+      return updated;
+    });
+
+    if (onSave) {
+      setIsLocalSaving(true);
+      try {
+        await onSave({
+          ...editedIndicators,
+          [templateGroupId]: {
+            ...(editedIndicators[templateGroupId] || {}),
+            [cropGroupId]: {
+              ...(editedIndicators[templateGroupId]?.[cropGroupId] || {}),
+              [measurementId]: zones
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Auto-save failed:', error);
+      } finally {
+        setIsLocalSaving(false);
+      }
     }
-  }
-}, [navigation, onSave, editedIndicators]); // Зависимость от editedIndicators
+  }, [navigation, onSave, editedIndicators]);
 
   const openDialog = useCallback((type: DialogType) => {
     setDialogType(type);
@@ -351,7 +400,7 @@ const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) =>
 
   const savingInProgress = isSaving || isLocalSaving;
 
-  // Диалоговые пропсы (без изменений)
+  // Диалоговые пропсы
   const dialogProps = useMemo(() => {
     switch (dialogType) {
       case 'templateGroup':
@@ -368,101 +417,26 @@ const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) =>
           getName: (item: TemplateGroupName) => item.template_group_name
         };
       
-      // case 'cropGroup':
-      //   return {
-      //     items: availableCropGroups,
-      //     existingItemIds: new Set<string>(),
-      //     onAddItem: handleAddCropGroup,
-      //     title: 'Добавить группу культур',
-      //     description: 'Выберите группу культур для добавления к текущей группе шаблонов',
-      //     searchPlaceholder: 'Поиск групп культур...',
-      //     noItemsMessage: 'Нет доступных групп культур',
-      //     noResultsMessage: 'Группы не найдены',
-      //     getId: (item: CropGroupName) => item.id,
-      //     getName: (item: CropGroupName) => item.crop_group_name
-      //   };
       case 'cropGroup':
-  // Функция для получения культур в группе
-  const getCropsInGroup = (groupId: number) => {
-    return cropGroups
-      .filter(cg => cg.crop_group_id === groupId)
-      .map(cg => {
-        const crop = handbooks.crops.find(c => c.crop_id === cg.crop_id);
         return {
-          id: cg.crop_id,
-          name: crop?.crop_name || `Культура ${cg.crop_id}`
+          items: availableCropGroups,
+          existingItemIds: new Set<string>(),
+          onAddItem: handleAddCropGroup,
+          title: 'Добавить группу культур',
+          description: 'Выберите группу культур для добавления к текущей группе шаблонов',
+          searchPlaceholder: 'Поиск групп культур...',
+          noItemsMessage: 'Нет доступных групп культур',
+          noResultsMessage: 'Группы не найдены',
+          getId: (item: CropGroupName) => item.id,
+          getName: (item: CropGroupName) => item.crop_group_name,
+          isCropGroupDialog: true,
+          validateCropGroup,
+          getCropsInGroup,
+          existingCropGroupIds: templateGroupCropGroups
+            .filter(tgcg => tgcg.template_group_id === Number(navigation.selectedTemplateGroupId))
+            .map(tgcg => tgcg.crop_group_id),
         };
-      });
-  };
-
-  // Функция валидации группы культур
-  const validateCropGroup = (item: CropGroupName) => {
-    // Получаем уже добавленные группы культур для этого шаблона
-    const existingGroupIds = templateGroupCropGroups
-      .filter(tgcg => tgcg.template_group_id === Number(navigation.selectedTemplateGroupId))
-      .map(tgcg => tgcg.crop_group_id);
-    
-    // Получаем все культуры из уже добавленных групп
-    const existingCrops = new Set<number>();
-    existingGroupIds.forEach(groupId => {
-      cropGroups
-        .filter(cg => cg.crop_group_id === groupId)
-        .forEach(cg => existingCrops.add(cg.crop_id));
-    });
-    
-    // Получаем культуры из новой группы
-    const newGroupCrops = cropGroups
-      .filter(cg => cg.crop_group_id === item.id)
-      .map(cg => cg.crop_id);
-    
-    // Находим пересечения
-    const conflictingCrops = newGroupCrops.filter(cropId => existingCrops.has(cropId));
-    
-    if (conflictingCrops.length > 0) {
-      const conflictCrops = conflictingCrops.map(cropId => {
-        const crop = handbooks.crops.find(c => c.crop_id === cropId);
-        // Находим, в какой группе уже есть эта культура
-        const existingGroupId = existingGroupIds.find(groupId => 
-          cropGroups.some(cg => cg.crop_group_id === groupId && cg.crop_id === cropId)
-        );
-        const existingGroup = cropGroupNames.find(g => g.id === existingGroupId);
-        
-        return {
-          id: cropId,
-          name: crop?.crop_name || `Культура ${cropId}`,
-          groupName: existingGroup?.crop_group_name || 'неизвестной группе'
-        };
-      });
       
-      return {
-        isValid: false,
-        conflictCrops,
-        errorMessage: `Группа содержит культуры, которые уже есть в других группах`
-      };
-    }
-    
-    return { isValid: true };
-  };
-
-  return {
-    items: availableCropGroups,
-    existingItemIds: new Set<string>(),
-    onAddItem: handleAddCropGroup,
-    title: 'Добавить группу культур',
-    description: 'Выберите группу культур для добавления к текущей группе шаблонов',
-    searchPlaceholder: 'Поиск групп культур...',
-    noItemsMessage: 'Нет доступных групп культур',
-    noResultsMessage: 'Группы не найдены',
-    getId: (item: CropGroupName) => item.id,
-    getName: (item: CropGroupName) => item.crop_group_name,
-    validateCropGroup,
-    getCropsInGroup,
-    allCropGroups: cropGroups,
-    allCrops: handbooks.crops,
-    existingCropGroupIds: templateGroupCropGroups
-      .filter(tgcg => tgcg.template_group_id === Number(navigation.selectedTemplateGroupId))
-      .map(tgcg => tgcg.crop_group_id),
-  };
       case 'measurement':
         return {
           items: availableMeasurements,
@@ -480,11 +454,12 @@ const handleZonesAutoSave = useCallback(async (zones: ThresholdValueWithId[]) =>
       default:
         return null;
     }
-  }, [dialogType, templateGroupNames, editedIndicators, availableCropGroups, availableMeasurements, handleAddTemplateGroup, handleAddCropGroup, handleAddMeasurement]);
+  }, [dialogType, templateGroupNames, editedIndicators, availableCropGroups, availableMeasurements, 
+      handleAddTemplateGroup, handleAddCropGroup, handleAddMeasurement, validateCropGroup, getCropsInGroup,
+      templateGroupCropGroups, navigation.selectedTemplateGroupId]);
 
   return (
     <Card className="w-full">
-      {/* ... JSX без изменений ... */}
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="flex items-center space-x-2">
           {navigation.view !== 'templateGroups' && (

@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from "react"
-import { getScoutReports, getIndicators, getAllThresholds, type IndicatorThreshold, deleteTemplateThresholds, deleteCropThresholds } from "./api/scoutingReportApi"
+import { useEffect, useState, useRef, useCallback, useMemo } from "react"
+import { getScoutReports, getIndicators, getAllThresholds, type IndicatorThreshold, deleteTemplateThresholds } from "./api/scoutingReportApi"
 import { aggregateTemplates } from "./services/aggregateTemplates"
 
 import ScoutingTemplateTableNested from "./components/Table/ScoutingTemplateTableNested"
@@ -12,9 +12,11 @@ import { useSearchParams } from "react-router-dom";
 
 import { getHandbooks } from "./api/handbooksApi"
 import GroupsThresholdsEditor from "./components/GroupsThresholdsEditor/GroupsThresholdsEditor"
-import type { GroupsIndicatorsData } from "./components/GroupsThresholdsEditor/types"
+import type { GroupsIndicatorsData, NavigationState } from "./components/GroupsThresholdsEditor/types"
 import type { Crop, ScoutReportTemplate, ScoutReportMeasurementType } from "./types/handbooks"
 import GroupsManager from "./components/GroupsManager/GroupsManager";
+import ScoutingOverview from "./components/ScoutingOverview/ScoutingOverview"
+import DateRangeSlider from "./components/DateRangeSlider/DateRangeSlider";
 
 // Импортируем типы для групп
 import type { 
@@ -74,10 +76,116 @@ function App() {
   const urlSeason = Number(searchParams.get("season")) || currentYear;
   const [season, setSeason] = useState(urlSeason);
 
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
+  const [expandedCrops, setExpandedCrops] = useState<Set<number>>(new Set())
+  const [expandedMeasurements, setExpandedMeasurements] = useState<Set<number>>(new Set())
+
+    const [groupsNavigation, setGroupsNavigation] = useState<NavigationState>({
+    view: 'templateGroups',
+    selectedTemplateGroupId: null,
+    selectedCropGroupId: null,
+    selectedMeasurementId: null,
+    selectedTemplateGroupCropGroupId: null
+  });
+
+  const handleToggleGroup = useCallback((id: number) => {
+  setExpandedGroups(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+}, [])
+
+const handleToggleCrop = useCallback((id: number) => {
+  setExpandedCrops(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+}, [])
+
+const handleToggleMeasurement = useCallback((id: number) => {
+  setExpandedMeasurements(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+}, [])
+
   const handleSeasonChange = (newSeason: number) => {
     setSeason(newSeason);
     setSearchParams({ ...Object.fromEntries(searchParams), season: String(newSeason) });
   };
+
+  const [dateRange, setDateRange] = useState({
+    start: new Date(season, 0, 1),
+    end: new Date(season, 11, 31),
+  });
+
+  // Обновляем диапазон при смене сезона
+  useEffect(() => {
+    setDateRange({
+      start: new Date(season, 0, 1),
+      end: new Date(season, 11, 31),
+    });
+  }, [season]);
+
+  const filteredTemplates = useMemo(() => {
+  if (!templates.length) return [];
+  
+  return templates.map(template => {
+    // Создаем копию шаблона
+    const filteredTemplate = { ...template };
+    
+    // Фильтруем культуры
+    filteredTemplate.crops = template.crops.map(crop => {
+      const filteredCrop = { ...crop };
+      
+      // Фильтруем измерения
+      filteredCrop.measurements = crop.measurements.map(measurement => {
+        const filteredMeasurement = { ...measurement };
+        
+        // Фильтруем отчеты по дате
+        filteredMeasurement.reports = measurement.reports.filter(report => {
+          // Нужно получить дату отчета. Предположим, что у отчета есть поле created_at или scout_report_date
+          const reportDate = new Date(report.report_date); // или report.created_at
+          return reportDate >= dateRange.start && reportDate <= dateRange.end;
+        });
+        
+        // Пересчитываем статистику для измерения
+        filteredMeasurement.stats = {
+          green: filteredMeasurement.reports.filter(r => r.zone === 'green').length,
+          orange: filteredMeasurement.reports.filter(r => r.zone === 'orange').length,
+          red: filteredMeasurement.reports.filter(r => r.zone === 'red').length,
+          total: filteredMeasurement.reports.length
+        };
+        
+        return filteredMeasurement;
+      }).filter(m => m.reports.length > 0); // Убираем измерения без отчетов
+      
+      // Пересчитываем статистику для культуры
+      filteredCrop.stats = {
+        green: filteredCrop.measurements.reduce((sum, m) => sum + m.stats.green, 0),
+        orange: filteredCrop.measurements.reduce((sum, m) => sum + m.stats.orange, 0),
+        red: filteredCrop.measurements.reduce((sum, m) => sum + m.stats.red, 0),
+        total: filteredCrop.measurements.reduce((sum, m) => sum + m.stats.total, 0)
+      };
+      
+      return filteredCrop;
+    }).filter(c => c.measurements.length > 0); // Убираем культуры без измерений
+    
+    // Пересчитываем статистику для шаблона
+    filteredTemplate.stats = {
+      green: filteredTemplate.crops.reduce((sum, c) => sum + c.stats.green, 0),
+      orange: filteredTemplate.crops.reduce((sum, c) => sum + c.stats.orange, 0),
+      red: filteredTemplate.crops.reduce((sum, c) => sum + c.stats.red, 0),
+      total: filteredTemplate.crops.reduce((sum, c) => sum + c.stats.total, 0)
+    };
+    
+    return filteredTemplate;
+  }).filter(t => t.crops.length > 0); // Убираем шаблоны без культур
+  
+}, [templates, dateRange]);
 
   const handleViewChange = (view: 'table' | 'zones' | 'groups') => {
     setCurrentView(view);
@@ -398,7 +506,29 @@ useEffect(() => {
       <div className="p-4 max-w-7xl mx-auto mt-8 space-y-8">
 
         {currentView === 'table' && (
-          <ScoutingTemplateTableNested templates={templates} />
+          <>
+          <DateRangeSlider
+            start={dateRange.start}
+            end={dateRange.end}
+            min={new Date(season, 0, 1)}
+            max={new Date(season, 11, 31)}
+            onChange={(start, end) => setDateRange({ start, end })}
+          />
+          <ScoutingOverview templates={filteredTemplates} />
+          <ScoutingTemplateTableNested 
+            templates={filteredTemplates}
+            templateGroups={templateGroups}
+            templateGroupNames={templateGroupNames}
+            cropGroups={cropGroups}
+            cropGroupNames={cropGroupNames}
+            expandedGroups={expandedGroups}
+            expandedCrops={expandedCrops}
+            expandedMeasurements={expandedMeasurements}
+            onToggleGroup={handleToggleGroup}
+            onToggleCrop={handleToggleCrop}
+            onToggleMeasurement={handleToggleMeasurement}
+          />
+          </>
         )}
         {currentView === 'zones' && (
           <GroupsThresholdsEditor
@@ -422,6 +552,8 @@ useEffect(() => {
             onDeleteTemplateGroup={handleDeleteTemplateGroup}
             onDeleteCropGroup={handleDeleteCropGroup}
             isSaving={isSaving}
+            navigation={groupsNavigation}
+            onNavigationChange={setGroupsNavigation}
           />
         )}
         {currentView === 'groups' && (
