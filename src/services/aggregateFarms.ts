@@ -1,22 +1,21 @@
 import type { ScoutReportItem, IndicatorsResponse } from "../types/scoutingReport"
-import type { TemplateData } from "../types/scoutingAggregated"
+import type { FarmData } from "../types/scoutingFarmAggregated"
 import type { TemplateGroup, CropGroup, TemplateGroupCropGroup } from "../types/groups"
 
-export function aggregateTemplates(
+export function aggregateFarms(
   reports: ScoutReportItem[],
   indicators: IndicatorsResponse,
   templateGroups: TemplateGroup[],
   cropGroups: CropGroup[],
   templateGroupCropGroups: TemplateGroupCropGroup[]
-): TemplateData[] {
-
-  const templatesMap: Record<number, TemplateData> = {}
+): FarmData[] {
+  
+  const farmsMap = new Map<string, FarmData>()
 
   // ✅ Функция для безопасного получения числового значения
   const getNumericValue = (value: any): number | null => {
     if (value === null || value === undefined) return null
     
-    // Если это строка, пробуем преобразовать в число
     if (typeof value === 'string') {
       const trimmed = value.trim()
       if (trimmed === '') return null
@@ -24,7 +23,6 @@ export function aggregateTemplates(
       return isNaN(num) ? null : num
     }
     
-    // Если это число, проверяем что оно валидное
     if (typeof value === 'number') {
       return isNaN(value) ? null : value
     }
@@ -63,6 +61,13 @@ export function aggregateTemplates(
     const templateName = report.scout_report_template_name
     const cropId = report.crop_id
     const cropName = report.crop_name
+    const fieldId = report.field_id
+    const fieldName = report.field_name
+    const fieldGroupName = report.field_group_name || null
+
+    // Определяем имя хозяйства (берем группу полей или создаем на основе поля)
+    const farmId = fieldGroupName || `field_${fieldId}`
+    const farmName = fieldGroupName || fieldName
 
     // ✅ Получаем ВСЕ группы
     const templateGroupIds = templateToGroupsMap.get(templateId) || []
@@ -96,18 +101,33 @@ export function aggregateTemplates(
       return
     }
 
-    if (!templatesMap[templateId]) {
-      templatesMap[templateId] = {
-        template_id: templateId,
-        template_name: templateName,
+    // Инициализируем хозяйство
+    if (!farmsMap.has(farmId)) {
+      farmsMap.set(farmId, {
+        farm_id: farmId,
+        farm_name: farmName,
+        stats: { green: 0, orange: 0, red: 0, total: 0 },
+        fields: []
+      })
+    }
+
+    const farm = farmsMap.get(farmId)!
+
+    // Находим или создаем поле
+    let field = farm.fields.find(f => f.field_id === fieldId)
+    if (!field) {
+      field = {
+        field_id: fieldId,
+        field_name: fieldName,
+        field_group_name: fieldGroupName,
         stats: { green: 0, orange: 0, red: 0, total: 0 },
         crops: []
       }
+      farm.fields.push(field)
     }
 
-    const template = templatesMap[templateId]
-
-    let crop = template.crops.find(c => c.crop_id === cropId)
+    // Находим или создаем культуру в поле
+    let crop = field.crops.find(c => c.crop_id === cropId)
     if (!crop) {
       crop = {
         crop_id: cropId,
@@ -115,15 +135,15 @@ export function aggregateTemplates(
         stats: { green: 0, orange: 0, red: 0, total: 0 },
         measurements: []
       }
-      template.crops.push(crop)
+      field.crops.push(crop)
     }
 
+    // Обрабатываем измерения
     Object.values(report.scout_report_point).forEach(measurements => {
       measurements.forEach(measurement => {
         // ✅ Получаем числовое значение измерения
         const numericValue = getNumericValue(measurement.measurement_value)
         
-        // Если значение невалидное - пропускаем это измерение
         if (numericValue === null) {
           return
         }
@@ -133,10 +153,10 @@ export function aggregateTemplates(
 
         if (!zones || zones.length === 0) return
 
-        // ✅ Округляем значение до 2 знаков после запятой
+        // ✅ Округляем значение
         const roundedValue = roundValue(numericValue)
 
-        // Определяем зону по порогам
+        // Определяем зону
         let currentZone: 'green' | 'orange' | 'red' = zones[0].zone
         for (let i = zones.length - 1; i >= 0; i--) {
           if (roundedValue >= zones[i].threshold_value) {
@@ -145,11 +165,15 @@ export function aggregateTemplates(
           }
         }
 
-        template.stats[currentZone]++
-        template.stats.total++
+        // Обновляем статистику
+        farm.stats[currentZone]++
+        farm.stats.total++
+        field.stats[currentZone]++
+        field.stats.total++
         crop.stats[currentZone]++
         crop.stats.total++
 
+        // Находим или создаем измерение
         let measurementType = crop.measurements.find(
           m => m.measurement_type_id === measurementTypeId
         )
@@ -167,17 +191,29 @@ export function aggregateTemplates(
         measurementType.stats[currentZone]++
         measurementType.stats.total++
 
+        // Добавляем отчет
         measurementType.reports.push({
-          field_id: report.field_id,
-          field_name: report.field_name,
+          field_id: fieldId,
+          field_name: fieldName,
           scout_report_id: report.scout_report_id,
           value: roundedValue,
           zone: currentZone,
-          report_date: report.report_date
+          report_date: report.report_date,
+          measurement_type_id: measurementTypeId,
+          measurement_type_name: measurement.human_name,
+          template_id: templateId,
+          template_name: templateName,
+          crop_id: cropId,
+          crop_name: cropName
         })
       })
     })
   })
 
-  return Object.values(templatesMap)
+  // Сортируем поля внутри каждого хозяйства по имени
+  for (const farm of farmsMap.values()) {
+    farm.fields.sort((a, b) => a.field_name.localeCompare(b.field_name))
+  }
+
+  return Array.from(farmsMap.values())
 }

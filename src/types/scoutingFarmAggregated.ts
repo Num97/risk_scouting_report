@@ -1,0 +1,48 @@
+// Базовый отчет для поля
+export interface FarmReportMeasurement {
+  field_id: number
+  field_name: string
+  scout_report_id: number
+  value: number
+  zone: 'green' | 'orange' | 'red'
+  report_date: string
+  measurement_type_id: number
+  measurement_type_name: string
+  template_id: number
+  template_name: string
+  crop_id: number
+  crop_name: string
+}
+
+// Данные по измерению на уровне поля
+export interface FarmMeasurementTypeData {
+  measurement_type_id: number
+  human_name: string
+  stats: { green: number; orange: number; red: number; total: number }
+  reports: FarmReportMeasurement[]
+}
+
+// Данные по культуре на уровне поля
+export interface FarmCropData {
+  crop_id: number
+  crop_name: string
+  stats: { green: number; orange: number; red: number; total: number }
+  measurements: FarmMeasurementTypeData[]
+}
+
+// Данные по полю
+export interface FieldData {
+  field_id: number
+  field_name: string
+  field_group_name: string | null
+  stats: { green: number; orange: number; red: number; total: number }
+  crops: FarmCropData[]
+}
+
+// Данные по хозяйству (группе полей)
+export interface FarmData {
+  farm_id: string
+  farm_name: string
+  stats: { green: number; orange: number; red: number; total: number }
+  fields: FieldData[]
+}

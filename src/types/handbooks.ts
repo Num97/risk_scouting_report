@@ -18,3 +18,5 @@ export interface HandbooksResponse {
   scout_report_templates: ScoutReportTemplate[]
   scout_report_measurement_types: ScoutReportMeasurementType[]
 }
+
+export type TabType = "templates" | "farms" | "stats"

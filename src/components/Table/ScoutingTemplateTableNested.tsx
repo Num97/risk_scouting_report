@@ -190,7 +190,7 @@ const ScoutingTemplateTableNested: React.FC<Props> = ({
     
     setModalReports(reports)
     setModalTitle(`${groupName} - ${zoneLabel}`)
-    setModalDescription(`Список отчетов с ${label} риском в группе "${groupName}"`)
+    setModalDescription(`Список отчетов ${label} риск в группе "${groupName}"`)
     setModalOpen(true)
   }
 

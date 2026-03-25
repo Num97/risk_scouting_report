@@ -27,12 +27,10 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
   );
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   
-  // Состояния для временных значений инпутов
   const [inputValues, setInputValues] = useState<{ [key: number]: string }>({});
   const [activeInputIndex, setActiveInputIndex] = useState<number | null>(null);
   const [originalValueAtFocus, setOriginalValueAtFocus] = useState<{ [key: number]: number }>({});
 
-  // Вычисляем максимальное значение для адаптивной шкалы
   const maxThreshold = useMemo(() => {
     if (localZones.length === 0) return 100;
     const maxValue = Math.max(...localZones.map(z => z.threshold_value));
@@ -50,7 +48,6 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     return Math.ceil(suggestedMax / 10) * 10;
   }, [localZones]);
 
-  // Синхронизируем localZones при изменении пропса zones
   useEffect(() => {
     let sortedZones = [...(zones || [])].sort((a, b) => a.threshold_value - b.threshold_value);
     
@@ -69,7 +66,6 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     setOriginalValueAtFocus({});
   }, [zones]);
 
-  // Автоматически скрываем уведомление через 3 секунды
   useEffect(() => {
     if (showSaveSuccess) {
       const timer = setTimeout(() => {
@@ -79,7 +75,6 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     }
   }, [showSaveSuccess]);
 
-  // Валидация зон
   const validateZones = (zonesToValidate: ThresholdValue[]) => {
     const errors = new Map<number, string>();
     const duplicates = new Set<number>();
@@ -116,15 +111,15 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
   };
 
   const saveIfNeeded = (newZones: ThresholdValueWithId[]) => {
-  const isValid = validateZones(newZones);
-  const hasChanges = JSON.stringify(newZones) !== JSON.stringify(lastSavedZones);
-  
-  if (isValid && hasChanges && onAutoSave && !disabled && !isSaving) {
-    onAutoSave(newZones); // Теперь onAutoSave ожидает Promise, но это ок
-    setLastSavedZones(newZones);
-    setShowSaveSuccess(true);
-  }
-};
+    const isValid = validateZones(newZones);
+    const hasChanges = JSON.stringify(newZones) !== JSON.stringify(lastSavedZones);
+    
+    if (isValid && hasChanges && onAutoSave && !disabled && !isSaving) {
+      onAutoSave(newZones);
+      setLastSavedZones(newZones);
+      setShowSaveSuccess(true);
+    }
+  };
 
   const handleAddZone = () => {
     if (disabled) return;
@@ -146,7 +141,6 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     saveIfNeeded(newZones);
   };
 
-  // Применяем значение при потере фокуса
   const applyValue = (index: number) => {
     if (disabled || index === 0) return;
     
@@ -156,16 +150,13 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     const numValue = parseFloat(rawValue);
     if (isNaN(numValue) || rawValue === '') return;
     
-    // Проверяем на дубликат
     const isDuplicate = localZones.some((zone, i) => i !== index && zone.threshold_value === numValue);
     
     if (isDuplicate) {
-      // Показываем ошибку
       const newErrors = new Map(validationErrors);
       newErrors.set(index, `Значение ${numValue} уже используется`);
       setValidationErrors(newErrors);
       
-      // Возвращаем старое значение в инпут
       setInputValues(prev => ({
         ...prev,
         [index]: localZones[index].threshold_value.toString()
@@ -173,14 +164,12 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
       return;
     }
     
-    // Убираем ошибку если она была
     if (validationErrors.has(index)) {
       const newErrors = new Map(validationErrors);
       newErrors.delete(index);
       setValidationErrors(newErrors);
     }
     
-    // Если значение допустимо, обновляем зону
     if (numValue >= 0) {
       const updatedZones = [...localZones];
       updatedZones[index] = { ...updatedZones[index], threshold_value: numValue };
@@ -190,14 +179,12 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
       onChange(sortedZones);
       saveIfNeeded(sortedZones);
       
-      // Очищаем временное значение
       setInputValues(prev => {
         const newValues = { ...prev };
         delete newValues[index];
         return newValues;
       });
       
-      // Очищаем сохраненное оригинальное значение
       setOriginalValueAtFocus(prev => {
         const newValues = { ...prev };
         delete newValues[index];
@@ -206,11 +193,9 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     }
   };
 
-  // Обработчик изменения инпута - только обновляем временное значение
   const handleInputChange = (index: number, value: string) => {
     setInputValues(prev => ({ ...prev, [index]: value }));
     
-    // Если поле становится пустым, убираем ошибку
     if (value === '') {
       if (validationErrors.has(index)) {
         const newErrors = new Map(validationErrors);
@@ -220,29 +205,25 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
     }
   };
 
-  // Обработчик фокуса - запоминаем оригинальное значение
   const handleFocus = (index: number) => {
     setActiveInputIndex(index);
-    // Сохраняем значение, которое было в момент фокуса
     setOriginalValueAtFocus(prev => ({
       ...prev,
       [index]: localZones[index].threshold_value
     }));
   };
 
-  // Обработчик потери фокуса
   const handleBlur = (index: number) => {
     setActiveInputIndex(null);
     applyValue(index);
   };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
     if (e.key === 'Enter') {
       e.currentTarget.blur();
     } else if (e.key === 'Escape') {
-      e.preventDefault(); // Предотвращаем стандартное поведение
+      e.preventDefault();
       
-      // Возвращаем оригинальное значение в инпут
       const originalValue = originalValueAtFocus[index];
       if (originalValue !== undefined) {
         setInputValues(prev => ({
@@ -256,39 +237,34 @@ const ZonesEditor: React.FC<ZonesEditorProps> = ({
         }));
       }
       
-      // Убираем ошибку если она была
       if (validationErrors.has(index)) {
         const newErrors = new Map(validationErrors);
         newErrors.delete(index);
         setValidationErrors(newErrors);
       }
-      
-      // Оставляем фокус на инпуте, но с восстановленным значением
     }
   };
 
-  // Получение отображаемого значения для инпута
   const getInputValue = (index: number) => {
     return inputValues[index] !== undefined ? inputValues[index] : localZones[index].threshold_value.toString();
   };
 
-const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, value: string | number) => {
-  if (disabled) return;
-  
-  const updatedZones = [...localZones];
-  const currentZone = updatedZones[index];
-  
-  // Сохраняем ID при обновлении!
-  updatedZones[index] = {
-    ...currentZone,
-    [field]: value,
-    id: currentZone.id // ID остается
+  const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, value: string | number) => {
+    if (disabled) return;
+    
+    const updatedZones = [...localZones];
+    const currentZone = updatedZones[index];
+    
+    updatedZones[index] = {
+      ...currentZone,
+      [field]: value,
+      id: currentZone.id
+    };
+    
+    setLocalZones(updatedZones);
+    onChange(updatedZones);
+    saveIfNeeded(updatedZones);
   };
-  
-  setLocalZones(updatedZones);
-  onChange(updatedZones);
-  saveIfNeeded(updatedZones); // <-- Добавляем автосохранение!
-};
 
   const handleDeleteZone = (index: number) => {
     if (disabled) return;
@@ -305,19 +281,19 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
 
   const getZoneColor = (zone: string) => {
     switch (zone) {
-      case 'red': return 'bg-red-50 border-red-200';
-      case 'orange': return 'bg-orange-50 border-orange-200';
-      case 'green': return 'bg-green-50 border-green-200';
+      case 'red': return 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800';
+      case 'orange': return 'bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800';
+      case 'green': return 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800';
       default: return '';
     }
   };
 
   const getZoneBackground = (zone: string) => {
     switch (zone) {
-      case 'red': return 'bg-red-500';
-      case 'orange': return 'bg-orange-500';
-      case 'green': return 'bg-green-500';
-      default: return 'bg-gray-500';
+      case 'red': return 'bg-red-500 dark:bg-red-600';
+      case 'orange': return 'bg-orange-500 dark:bg-orange-600';
+      case 'green': return 'bg-green-500 dark:bg-green-600';
+      default: return 'bg-gray-500 dark:bg-gray-600';
     }
   };
 
@@ -335,7 +311,6 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
   return (
     <TooltipProvider>
       <div className="space-y-4">
-        {/* Индикатор сохранения */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-semibold">
@@ -383,7 +358,6 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
           </div>
         </div>
 
-        {/* Предупреждение об ошибках */}
         {hasErrors && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -404,9 +378,9 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
                 key={index} 
                 className={`border-2 transition-all ${
                   hasError 
-                    ? 'border-red-300 bg-red-50/50' 
+                    ? 'border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-950/30' 
                     : getZoneColor(zone.zone)
-                } ${disabled ? 'opacity-75' : ''} ${isFirstZone ? 'border-dashed border-stone-400' : ''} ${isActive ? 'ring-2 ring-blue-300' : ''}`}
+                } ${disabled ? 'opacity-75' : ''} ${isFirstZone ? 'border-dashed border-stone-400 dark:border-stone-600' : ''} ${isActive ? 'ring-2 ring-blue-300 dark:ring-blue-600' : ''}`}
               >
                 <CardContent className="p-4">
                   <div className="flex items-center space-x-4">
@@ -467,7 +441,7 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
                     <Button
                       variant="ghost"
                       size="icon"
-                      className={`${isFirstZone ? 'opacity-0 pointer-events-none' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
+                      className={`${isFirstZone ? 'opacity-0 pointer-events-none' : 'text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950'}`}
                       onClick={() => handleDeleteZone(index)}
                       disabled={disabled || isFirstZone}
                     >
@@ -480,7 +454,6 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
           })}
         </div>
 
-        {/* Визуализация зон - только адаптивная шкала */}
         {localZones.length > 0 && !hasErrors && (
           <div className="mt-6 p-4 bg-gray-50 dark:bg-stone-800/50 rounded-lg">
             <div className="flex items-center justify-between mb-3">
@@ -495,17 +468,14 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
               </Tooltip>
             </div>
             
-            {/* Основная шкала */}
             <div className="relative">
-              <div className="flex h-10 rounded-lg overflow-hidden shadow-inner">
+              <div className="flex h-10 rounded-lg overflow-hidden shadow-inner dark:shadow-none">
                 {localZones.map((zone, index) => {
                   const currentValue = zone.threshold_value;
                   const nextValue = index < localZones.length - 1 
                     ? localZones[index + 1].threshold_value 
                     : maxThreshold;
                   
-                  // Для последней зоны показываем от текущего значения до maxThreshold
-                  // Для остальных - от текущего до следующего
                   const startValue = currentValue;
                   const endValue = nextValue;
                   const width = ((endValue - startValue) / maxThreshold) * 100;
@@ -529,10 +499,9 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
                       <TooltipContent>
                         <p className="font-medium">{getZoneText(zone.zone)} зона</p>
                         <p className="text-xs">
-                          от {startValue} до {endValue}
-                          {index === localZones.length - 1 && ' и выше'}
+                          {index != localZones.length - 1 && `от ${startValue} до ${endValue}`}
+                          {index === localZones.length - 1 && `от ${startValue} и выше`}
                         </p>
-                        {index === 0 && <p className="text-xs text-muted-foreground">(начальная)</p>}
                       </TooltipContent>
                     </Tooltip>
                   );
@@ -540,7 +509,6 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
               </div>
             </div>
 
-            {/* Информация о шкале */}
             <div className="flex justify-between mt-4 text-xs text-muted-foreground">
               <div className="flex items-center gap-1">
                 <span className="font-medium">Диапазон:</span>
@@ -552,18 +520,17 @@ const handleUpdateZone = (index: number, field: keyof ThresholdValueWithId, valu
               </div>
             </div>
             
-            {/* Легенда */}
             <div className="flex gap-4 mt-3 pt-3 border-t border-stone-200 dark:border-stone-700">
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500 dark:bg-green-600"></div>
                 <span className="text-xs">Зеленая</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+                <div className="w-3 h-3 rounded-full bg-orange-500 dark:bg-orange-600"></div>
                 <span className="text-xs">Оранжевая</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-3 h-3 rounded-full bg-red-500 dark:bg-red-600"></div>
                 <span className="text-xs">Красная</span>
               </div>
             </div>

@@ -68,6 +68,10 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
   const [isAddCropToGroupDialogOpen, setIsAddCropToGroupDialogOpen] = useState(false);
   const [selectedGroupForAdd, setSelectedGroupForAdd] = useState<number | null>(null);
   
+  // НОВЫЕ СОСТОЯНИЯ ДЛЯ ПОДСВЕТКИ ШАБЛОНОВ
+  const [templatesInOtherGroups, setTemplatesInOtherGroups] = useState<Set<number>>(new Set());
+  const [templatesInCurrentGroup, setTemplatesInCurrentGroup] = useState<Set<number>>(new Set());
+  
   // Error/Success states
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -103,7 +107,7 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
     try {
       setIsLoading(true);
       await createTemplateGroupName(newTemplateGroupName.trim());
-      await onUpdate(); // обновляем данные в родителе
+      await onUpdate();
       setNewTemplateGroupName('');
       setSuccess('Группа создана');
     } catch (err) {
@@ -218,6 +222,34 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
   // ======================
   // Template Group Items
   // ======================
+
+  const updateTemplateStatuses = (groupId: number) => {
+    if (!groupId) return;
+    
+    // Шаблоны в текущей группе
+    const currentTemplates = new Set(
+      templateGroups
+        .filter(g => g.template_group_id === groupId)
+        .map(g => g.scout_report_template_id)
+    );
+    setTemplatesInCurrentGroup(currentTemplates);
+    
+    // Шаблоны в других группах
+    const otherTemplates = new Set<number>();
+    templateGroups.forEach(g => {
+      if (g.template_group_id !== groupId) {
+        otherTemplates.add(g.scout_report_template_id);
+      }
+    });
+    setTemplatesInOtherGroups(otherTemplates);
+  };
+
+  useEffect(() => {
+  if (isAddTemplateToGroupDialogOpen && selectedGroupForAdd) {
+    updateTemplateStatuses(selectedGroupForAdd);
+  }
+}, [templateGroups, isAddTemplateToGroupDialogOpen, selectedGroupForAdd]);
+
   const handleAddTemplateToGroup = async (template: any) => {
     if (!selectedGroupForAdd) return;
 
@@ -225,14 +257,13 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
       setIsLoading(true);
       await createTemplateGroup(selectedGroupForAdd, template.scout_report_template_id);
       await onUpdate();
+      updateTemplateStatuses(selectedGroupForAdd);
       setSuccess('Шаблон добавлен в группу');
     } catch (err) {
       setError('Ошибка добавления шаблона в группу');
       console.error(err);
     } finally {
       setIsLoading(false);
-      setIsAddTemplateToGroupDialogOpen(false);
-      setSelectedGroupForAdd(null);
     }
   };
 
@@ -273,8 +304,6 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
       console.error(err);
     } finally {
       setIsLoading(false);
-      setIsAddCropToGroupDialogOpen(false);
-      setSelectedGroupForAdd(null);
     }
   };
 
@@ -343,6 +372,77 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
     );
     return crops.filter(c => !cropsInGroup.has(c.crop_id));
   };
+
+  // Функция для получения названия группы по ID шаблона
+  const getTemplateGroupName = (templateId: number): string => {
+    // Находим связь шаблона с группой
+    const groupRelation = templateGroups.find(g => g.scout_report_template_id === templateId);
+    if (!groupRelation) return '';
+    
+    // Находим название группы по template_group_id
+    const groupName = templateGroupNames.find(g => g.id === groupRelation.template_group_id);
+    return groupName?.template_group_name || '';
+  };
+
+  // Функция для открытия диалога добавления шаблона
+  const handleOpenAddTemplateDialog = (groupId: number) => {
+    setSelectedGroupForAdd(groupId);
+    
+    // Шаблоны в текущей группе
+    const currentTemplates = new Set(
+      templateGroups
+        .filter(g => g.template_group_id === groupId)
+        .map(g => g.scout_report_template_id)
+    );
+    setTemplatesInCurrentGroup(currentTemplates);
+    
+    // Шаблоны в других группах (все шаблоны из других групп)
+    const otherTemplates = new Set<number>();
+    templateGroups.forEach(g => {
+      // Если шаблон не в текущей группе, добавляем его в otherTemplates
+      if (g.template_group_id !== groupId) {
+        otherTemplates.add(g.scout_report_template_id);
+      }
+    });
+    setTemplatesInOtherGroups(otherTemplates);
+    
+    setIsAddTemplateToGroupDialogOpen(true);
+  };
+
+  // Функция валидации шаблона для диалога
+  const validateTemplateForGroup = (template: any) => {
+    const templateId = template.scout_report_template_id;
+    
+    // Проверяем, есть ли шаблон в текущей группе
+    if (templatesInCurrentGroup.has(templateId)) {
+      return {
+        status: 'in_current_group' as const,
+        message: 'Уже в этой группе',
+      };
+    }
+    
+    // Проверяем, есть ли шаблон в других группах
+    if (templatesInOtherGroups.has(templateId)) {
+      const groupName = getTemplateGroupName(templateId);
+      return {
+        status: 'in_other_group' as const,
+        message: `Уже в группе "${groupName}"`,
+        groupName,
+      };
+    }
+    
+    return {
+      status: 'available' as const,
+    };
+  };
+
+  const currentCropGroupName = selectedGroupForAdd 
+    ? cropGroupNames.find(g => g.id === selectedGroupForAdd)?.crop_group_name 
+    : '';
+
+  const currentGroupName = selectedGroupForAdd 
+    ? templateGroupNames.find(g => g.id === selectedGroupForAdd)?.template_group_name 
+    : '';
 
   return (
     <TooltipProvider>
@@ -525,10 +625,7 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
                             variant="outline"
                             size="sm"
                             className="mt-2"
-                            onClick={() => {
-                              setSelectedGroupForAdd(group.id);
-                              setIsAddTemplateToGroupDialogOpen(true);
-                            }}
+                            onClick={() => handleOpenAddTemplateDialog(group.id)}
                           >
                             <Plus className="h-3 w-3 mr-1" />
                             Добавить шаблон
@@ -715,16 +812,17 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
         <AddItemDialog
           open={isAddTemplateToGroupDialogOpen}
           onOpenChange={setIsAddTemplateToGroupDialogOpen}
-          items={selectedGroupForAdd ? getAvailableTemplatesForGroup(selectedGroupForAdd) : []}
-          existingItemIds={new Set()} // Все доступные шаблоны уже отфильтрованы
+          items={templates}
+          existingItemIds={new Set()}
           onAddItem={handleAddTemplateToGroup}
-          title="Добавить шаблон в группу"
-          description="Выберите шаблон для добавления в группу"
+          title={`Добавить шаблон в группу "${currentGroupName}"`}
+          description={`Выберите шаблон для добавления в группу "${currentGroupName}"`}
           searchPlaceholder="Поиск шаблонов..."
           noItemsMessage="Нет доступных шаблонов"
           noResultsMessage="Шаблоны не найдены"
           getId={(item) => item.scout_report_template_id}
           getName={(item) => item.scout_report_template_name}
+          validateTemplate={validateTemplateForGroup}
         />
 
         {/* Диалог добавления культуры в группу */}
@@ -732,10 +830,10 @@ const GroupsManager: React.FC<GroupsManagerProps> = ({
           open={isAddCropToGroupDialogOpen}
           onOpenChange={setIsAddCropToGroupDialogOpen}
           items={selectedGroupForAdd ? getAvailableCropsForGroup(selectedGroupForAdd) : []}
-          existingItemIds={new Set()} // Все доступные культуры уже отфильтрованы
+          existingItemIds={new Set()}
           onAddItem={handleAddCropToGroup}
-          title="Добавить культуру в группу"
-          description="Выберите культуру для добавления в группу"
+          title={`Добавить культуру в группу "${currentCropGroupName}"`}
+          description={`Выберите культуру для добавления в группу "${currentCropGroupName}"`}
           searchPlaceholder="Поиск культур..."
           noItemsMessage="Нет доступных культур"
           noResultsMessage="Культуры не найдены"
